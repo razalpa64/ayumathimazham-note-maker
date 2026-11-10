@@ -172,15 +172,46 @@ function deriveThemeFromHex(hex) {
 }
 
 function applyThemeGlobally(themeObj) {
-  state.defaults = { ...state.defaults, ...themeObj };
+  const banner = themeObj.banner_color || themeObj.theme_color || '#640000';
+  const theme = {
+    ...themeObj,
+    theme_color: themeObj.theme_color || banner,
+    banner_color: banner,
+    cat_color: themeObj.cat_color || banner,
+    bg_color: themeObj.bg_color || '#F7F4EF',
+    watermark_color: themeObj.watermark_color || '#B89494'
+  };
+
+  state.defaults = { ...state.defaults, ...theme };
+  document.documentElement.style.setProperty('--wine', theme.banner_color);
+  document.documentElement.style.setProperty('--wine-dark', theme.banner_color);
+  document.documentElement.style.setProperty('--wine-light', theme.cat_color);
+  document.documentElement.style.setProperty('--cream', theme.bg_color);
+
   state.documents.filter(d => !d.error).forEach(d => {
     const c = state.configs[d.id];
     if (c) {
-      c.fields = { ...c.fields, ...themeObj };
+      c.fields = { ...c.fields, ...theme };
       syncCover(d.id);
     }
   });
-  toast(`🎨 PDF Theme updated: ${themeObj.name || 'Custom'}`);
+
+  const picker = $('#globalThemePicker');
+  const customSwatch = $('#globalCustomSwatch');
+  const customLabel = $('.theme-custom-label');
+  const presetButtons = $$('#globalThemePresets .theme-pill');
+  const matchedPreset = presetButtons.find(btn =>
+    btn.dataset.theme.toLowerCase() === theme.banner_color.toLowerCase() &&
+    btn.dataset.cat.toLowerCase() === theme.cat_color.toLowerCase() &&
+    btn.dataset.bg.toLowerCase() === theme.bg_color.toLowerCase() &&
+    btn.dataset.wm.toLowerCase() === theme.watermark_color.toLowerCase()
+  );
+  presetButtons.forEach(btn => btn.classList.toggle('active', btn === matchedPreset));
+  if (customLabel) customLabel.classList.toggle('active', !matchedPreset);
+  if (picker) picker.value = theme.banner_color;
+  if (customSwatch) customSwatch.style.background = theme.banner_color;
+
+  toast(`🎨 ${theme.name || 'Color theme'} applied to all covers`);
 }
 
 async function safeFetchJSON(url, options = {}) {
