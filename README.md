@@ -68,6 +68,31 @@ Open your browser at **http://127.0.0.1:5055**.
 
 ---
 
+## Cloud Deployment
+
+### Deploying on Vercel
+This repository is configured out-of-the-box for Vercel using `vercel.json` and `api/index.py`:
+
+1. Push this repo to your GitHub account.
+2. Go to [Vercel](https://vercel.com) and click **"Add New Project"**.
+3. Select this repository and click **Deploy**.
+4. Vercel automatically detects the Python runtime and routes all traffic to Flask.
+
+> [!NOTE]
+> **Vercel Serverless Limits**: Vercel Free has a strict **4.5 MB request body limit** for serverless function uploads and a 10s timeout. It works great for single study notes under 4.5 MB.
+> For large multi-file batches (up to 60 MB each), deploy as a continuous web service on **Render** or **Railway**.
+
+### Deploying on Render (Free, supports large files up to 60 MB)
+1. Go to [Render.com](https://render.com) and create a **Web Service**.
+2. Connect your GitHub repository.
+3. Configure:
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python app.py` (or `gunicorn app:app -b 0.0.0.0:$PORT`)
+4. Click **Deploy**. Render gives you a free URL with no 4.5 MB upload limit!
+
+---
+
 ## Technical Stack
 
 - **Backend**: Python 3, Flask, PyMuPDF (Fitz)

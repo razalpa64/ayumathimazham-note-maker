@@ -22,10 +22,19 @@ from flask import Flask, abort, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
 BASE = Path(__file__).resolve().parent
-RUNTIME = BASE / "runtime"
-RUNTIME.mkdir(exist_ok=True)
+IS_VERCEL = bool(os.environ.get("VERCEL"))
+
+# In Vercel or read-only environments, use writable /tmp
+if IS_VERCEL or not os.access(BASE, os.W_OK):
+    RUNTIME = Path(tempfile.gettempdir()) / "azhumathimayam_runtime"
+else:
+    RUNTIME = BASE / "runtime"
+
+RUNTIME.mkdir(parents=True, exist_ok=True)
 DOWNLOAD_ROOT = RUNTIME / "downloads"
-DOWNLOAD_ROOT.mkdir(exist_ok=True)
+DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+JOBS_DIR = RUNTIME / "jobs"
+JOBS_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOAD_TTL = 7 * 24 * 60 * 60
 
 # Clean old downloads older than TTL
@@ -45,7 +54,34 @@ MAX_PAGES = 500
 JOBS: dict[str, dict[str, Any]] = {}
 LOCK = threading.Lock()
 
-app = Flask(__name__)
+
+def save_job_state(job_id: str, job: dict[str, Any]) -> None:
+    """Persist job state to /tmp so serverless lambdas can share data across requests."""
+    try:
+        data = {k: v for k, v in job.items() if k in ("id", "dir", "download_dir", "files", "logo_path", "cover_reference", "created", "metadata", "processing")}
+        (JOBS_DIR / f"{job_id}.json").write_text(json.dumps(data), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def get_job_state(job_id: str) -> dict[str, Any] | None:
+    """Retrieve job state from memory or persistent disk file."""
+    with LOCK:
+        if job_id in JOBS:
+            return JOBS[job_id]
+    job_file = JOBS_DIR / f"{job_id}.json"
+    if job_file.is_file():
+        try:
+            data = json.loads(job_file.read_text(encoding="utf-8"))
+            with LOCK:
+                JOBS[job_id] = data
+            return data
+        except Exception:
+            pass
+    return None
+
+
+app = Flask(__name__, template_folder=str(BASE / "templates"), static_folder=str(BASE / "static"))
 app.config["MAX_CONTENT_LENGTH"] = MAX_BATCH
 app.config["JSON_SORT_KEYS"] = False
 
@@ -782,6 +818,7 @@ def upload():
     }
     with LOCK:
         JOBS[job_id] = job
+    save_job_state(job_id, job)
         
     byname = defaultdict(list)
     for row in metadata:
@@ -810,7 +847,7 @@ def upload():
 
 @app.get("/preview/<job_id>/<doc_id>/<int:page_no>")
 def preview(job_id, doc_id, page_no):
-    job = JOBS.get(job_id)
+    job = get_job_state(job_id)
     if not job or doc_id not in job["files"]:
         abort(404)
     info = job["files"][doc_id]
@@ -827,13 +864,14 @@ def preview(job_id, doc_id, page_no):
 
 
 def run_batch(job_id: str, configs: dict[str, Any]) -> None:
-    job = JOBS.get(job_id)
+    job = get_job_state(job_id)
     if not job:
         return
     state = job.get("processing", {})
     try:
         for doc_id, info in job["files"].items():
             state["current"] = info["filename"]
+            save_job_state(job_id, job)
             try:
                 res = process_one(job, info, configs.get(doc_id, {}))
                 result = {"id": doc_id, **res}
@@ -841,16 +879,18 @@ def run_batch(job_id: str, configs: dict[str, Any]) -> None:
                 result = {"id": doc_id, "ok": False, "filename": info["filename"], "error": str(exc)[:300]}
             state["results"].append(result)
             state["done"] += 1
+            save_job_state(job_id, job)
     except Exception as exc:
         state["error"] = str(exc)
     finally:
         state["current"] = None
         state["status"] = "complete"
+        save_job_state(job_id, job)
 
 
 @app.get("/image-preview/<job_id>/<doc_id>/<int:xref>")
 def image_preview(job_id, doc_id, xref):
-    job = JOBS.get(job_id)
+    job = get_job_state(job_id)
     if not job or doc_id not in job["files"]:
         abort(404)
     try:
@@ -875,7 +915,7 @@ def image_preview(job_id, doc_id, xref):
 
 @app.get("/reference/<job_id>")
 def cover_reference(job_id):
-    job = JOBS.get(job_id)
+    job = get_job_state(job_id)
     if not job or not job.get("cover_reference"):
         abort(404)
     return send_file(job["cover_reference"], mimetype="image/jpeg", max_age=0)
@@ -883,7 +923,7 @@ def cover_reference(job_id):
 
 @app.post("/api/process/<job_id>")
 def process(job_id):
-    job = JOBS.get(job_id)
+    job = get_job_state(job_id)
     if not job:
         return jsonify(error="This batch has expired. Upload the files again."), 404
     if job.get("processing", {}).get("status") == "running":
@@ -893,14 +933,21 @@ def process(job_id):
     if not isinstance(configs, dict):
         configs = {}
     job["processing"] = {"status": "running", "total": len(job["files"]), "done": 0, "current": None, "results": []}
-    thread = threading.Thread(target=run_batch, args=(job_id, configs), daemon=True)
-    thread.start()
-    return jsonify(status="running", total=len(job["files"])), 202
+    save_job_state(job_id, job)
+    
+    if IS_VERCEL:
+        run_batch(job_id, configs)
+        job = get_job_state(job_id) or job
+        return jsonify(status="complete", total=len(job["files"]), done=len(job["files"]), results=job.get("processing", {}).get("results", [])), 200
+    else:
+        thread = threading.Thread(target=run_batch, args=(job_id, configs), daemon=True)
+        thread.start()
+        return jsonify(status="running", total=len(job["files"])), 202
 
 
 @app.get("/api/status/<job_id>")
 def processing_status(job_id):
-    job = JOBS.get(job_id)
+    job = get_job_state(job_id)
     if not job:
         return jsonify(error="This batch has expired. Upload the files again."), 404
     state = job.get("processing")
