@@ -1016,6 +1016,7 @@ def too_large(_):
 
 
 if __name__ == "__main__":
-    host = os.environ.get("INVYTRA_HOST", "127.0.0.1")
-    port = int(os.environ.get("INVYTRA_PORT", "5055"))
+    is_cloud = bool(os.environ.get("RENDER") or os.environ.get("PORT") or os.environ.get("DYNO"))
+    host = os.environ.get("INVYTRA_HOST", "0.0.0.0" if is_cloud else "127.0.0.1")
+    port = int(os.environ.get("PORT") or os.environ.get("INVYTRA_PORT", "5055"))
     app.run(host=host, port=port, debug=False)
