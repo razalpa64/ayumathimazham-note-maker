@@ -65,6 +65,11 @@
             <span><b>Cover reference</b><small>Optional image guide · preview comparison</small></span>
             <input id="coverReference" type="file" accept="image/png,image/jpeg,image/webp">
           </label>
+          <label class="file-option">
+            <span class="option-icon">🛡</span>
+            <span><b>Watermark art</b><small>Optional image/stamp · placed under text</small></span>
+            <input id="watermarkImage" type="file" accept="image/png,image/jpeg,image/webp">
+          </label>
         </div>
         <button class="button primary" type="submit" id="analyzeBtn">Analyze PDFs <span>→</span></button>
         <div id="uploadError" class="error-message" role="alert"></div>
@@ -136,6 +141,46 @@
                 <span>Custom</span>
               </span>
             </label>
+          </div>
+        </div>
+
+        <!-- 🛡️ Custom Watermark Selector (Text or Image, Placed Under Text) -->
+        <div class="watermark-bar">
+          <div class="watermark-bar-head">
+            <div class="watermark-bar-title">
+              <strong>Watermark Protection (Drawn Under Notes)</strong>
+              <small>Appears behind study notes text so original equations, code, and diagrams remain 100% readable</small>
+            </div>
+            <div class="wm-type-pills" id="wmTypePills">
+              <button type="button" class="wm-type-pill active" data-wm-type="text">Text Watermark</button>
+              <button type="button" class="wm-type-pill" data-wm-type="image">Image / Stamp</button>
+            </div>
+          </div>
+
+          <!-- Text Watermark Controls -->
+          <div id="wmTextControls" class="wm-controls-grid">
+            <div class="field">
+              <label>Custom Watermark Text</label>
+              <input id="globalWmText" value="AZHUMATHIMAYAM" placeholder="e.g. AZHUMATHIMAYAM or YOUR BRAND">
+            </div>
+            <div class="field">
+              <label>Secondary / Scheme Text</label>
+              <input id="globalWmSubtext" value="KTU 2024 SCHEME NOTES" placeholder="e.g. KTU 2024 SCHEME NOTES (optional)">
+            </div>
+          </div>
+
+          <!-- Image Watermark Controls -->
+          <div id="wmImageControls" class="wm-image-controls hidden">
+            <div class="wm-image-upload-row">
+              <label class="button secondary wm-upload-label">
+                <span>Upload Watermark Image</span>
+                <input type="file" id="reviewWmImageInput" accept="image/png,image/jpeg,image/webp" style="display:none">
+              </label>
+              <div id="wmImageThumbWrap" class="wm-thumb-wrap hidden">
+                <img id="wmImageThumb" src="" alt="Watermark stamp preview">
+              </div>
+              <span id="wmImageStatusText" class="muted">Upload custom PNG/JPEG stamp (placed centered behind text)</span>
+            </div>
           </div>
         </div>
 

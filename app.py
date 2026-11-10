@@ -71,7 +71,7 @@ LOCK = threading.Lock()
 def save_job_state(job_id: str, job: dict[str, Any]) -> None:
     """Persist job state atomically so processes and requests share reliable state."""
     try:
-        data = {k: v for k, v in job.items() if k in ("id", "dir", "download_dir", "files", "logo_path", "cover_reference", "created", "metadata", "processing")}
+        data = {k: v for k, v in job.items() if k in ("id", "dir", "download_dir", "files", "logo_path", "watermark_image_path", "cover_reference", "created", "metadata", "processing")}
         tmp_file = JOBS_DIR / f"{job_id}.json.tmp"
         tmp_file.write_text(json.dumps(data, default=str), encoding="utf-8")
         tmp_file.replace(JOBS_DIR / f"{job_id}.json")
@@ -103,7 +103,8 @@ app.config["JSON_SORT_KEYS"] = False
 FIELDS = [
     "title", "course_code", "module", "institution", "scheme", "category",
     "website", "phone", "email", "subtitle", "tags",
-    "theme_color", "banner_color", "bg_color", "cat_color", "watermark_color"
+    "theme_color", "banner_color", "bg_color", "cat_color", "watermark_color",
+    "watermark_text", "watermark_subtext", "watermark_type"
 ]
 DEFAULTS = {
     "institution": "",
@@ -118,7 +119,10 @@ DEFAULTS = {
     "banner_color": "#640000",
     "bg_color": "#F7F4EF",
     "cat_color": "#8C1D1D",
-    "watermark_color": "#B89494"
+    "watermark_color": "#B89494",
+    "watermark_text": "AZHUMATHIMAYAM",
+    "watermark_subtext": "KTU 2024 SCHEME NOTES",
+    "watermark_type": "text"
 }
 BRAND_WORDS = ("invytra", "azhumathimayam", "contact", "www.", "http://", "https://", "phone", "8606159002", "telegram", "whatsapp")
 
@@ -775,51 +779,81 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             except Exception:
                 pass
 
-            # 6. Azhumathimayam clear, prominent anti-piracy watermark
+            # 6. Watermark placement (drawn strictly UNDER the text: overlay=False)
             if config.get("watermark", True) is True and src_idx in watermark_pages:
                 rect = page.rect
                 raw_wm = fields.get("watermark_color") or fields.get("banner_color")
                 wm_rgb = hex_to_rgb(raw_wm, (100 / 255, 0, 0))
-                # Crisp, prominent anti-piracy tint: clearly legible without obscuring underlying text
+                # Crisp legible tint that stays subtle behind text
                 wm_tint = (
                     min(1.0, wm_rgb[0] * 0.52 + 0.38),
                     min(1.0, wm_rgb[1] * 0.52 + 0.38),
                     min(1.0, wm_rgb[2] * 0.52 + 0.38)
                 )
 
-                label = "AZHUMATHIMAYAM"
-                sub_label = "KTU 2024 SCHEME NOTES"
                 center_x = rect.width / 2
                 center_y = rect.height / 2
+                wm_type = str(fields.get("watermark_type") or config.get("watermark_type") or "text").lower()
 
-                try:
-                    font_size = min(42, max(24, rect.width * 0.064))
-                    tw = fitz.Font("hebo").text_length(label, fontsize=font_size)
-                    start_x = center_x - (tw / 2) * 0.82
-                    start_y = center_y + (tw / 2) * 0.57
-                    page.insert_text(
-                        (start_x, start_y), label,
-                        fontname="hebo", fontsize=font_size,
-                        color=wm_tint, rotate=325,
-                        overlay=True
-                    )
+                # Option A: Custom Image Watermark (drawn UNDER text)
+                if wm_type == "image":
+                    wm_img = None
+                    if job.get("watermark_image_path") and Path(job["watermark_image_path"]).exists():
+                        wm_img = Path(job["watermark_image_path"])
+                    elif job.get("logo_path") and Path(job["logo_path"]).exists():
+                        wm_img = Path(job["logo_path"])
+                    elif (BASE / "static" / "azhumathimayam-logo.png").exists():
+                        wm_img = BASE / "static" / "azhumathimayam-logo.png"
 
-                    sub_size = font_size * 0.38
-                    sub_tw = fitz.Font("hebo").text_length(sub_label, fontsize=sub_size)
-                    sub_x = center_x - (sub_tw / 2) * 0.82 + 14
-                    sub_y = start_y + 24
-                    page.insert_text(
-                        (sub_x, sub_y), sub_label,
-                        fontname="hebo", fontsize=sub_size,
-                        color=wm_tint, rotate=325,
-                        overlay=True
-                    )
-                except Exception:
-                    page.insert_text((center_x - 120, center_y), label, fontname="helv", fontsize=28, color=wm_tint, overlay=True)
+                    if wm_img and wm_img.exists():
+                        try:
+                            pix = fitz.Pixmap(str(wm_img))
+                            target_w = min(rect.width * 0.50, 300.0)
+                            target_h = target_w * (pix.height / max(1, pix.width))
+                            target_rect = fitz.Rect(
+                                center_x - target_w / 2, center_y - target_h / 2,
+                                center_x + target_w / 2, center_y + target_h / 2
+                            )
+                            # overlay=False ensures watermark image is drawn UNDER existing text!
+                            page.insert_image(target_rect, filename=str(wm_img), keep_proportion=True, overlay=False)
+                        except Exception:
+                            pass
 
-                # Discreet anti-piracy running stamps in top and bottom margins
-                page.insert_text((42, 22), "AZHUMATHIMAYAM · KTU 2024 SCHEME", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=True)
-                page.insert_text((42, rect.height - 18), "azhumathimayam.invytra.in · All KTU Study Rights Reserved", fontname="helv", fontsize=7.0, color=(0.52, 0.46, 0.44), overlay=True)
+                # Option B: Custom Text Watermark (drawn UNDER text)
+                else:
+                    label = (fields.get("watermark_text") or "AZHUMATHIMAYAM").strip()
+                    sub_label = (fields.get("watermark_subtext") or "KTU 2024 SCHEME NOTES").strip()
+
+                    try:
+                        font_size = min(42, max(20, rect.width * (0.64 / max(1, len(label) * 0.10))))
+                        tw = fitz.Font("hebo").text_length(label, fontsize=font_size)
+                        start_x = center_x - (tw / 2) * 0.82
+                        start_y = center_y + (tw / 2) * 0.57
+                        # overlay=False ensures watermark text is placed UNDER/BEHIND the text!
+                        page.insert_text(
+                            (start_x, start_y), label,
+                            fontname="hebo", fontsize=font_size,
+                            color=wm_tint, rotate=325,
+                            overlay=False
+                        )
+
+                        if sub_label:
+                            sub_size = max(9.0, font_size * 0.38)
+                            sub_tw = fitz.Font("hebo").text_length(sub_label, fontsize=sub_size)
+                            sub_x = center_x - (sub_tw / 2) * 0.82 + 14
+                            sub_y = start_y + 24
+                            page.insert_text(
+                                (sub_x, sub_y), sub_label,
+                                fontname="hebo", fontsize=sub_size,
+                                color=wm_tint, rotate=325,
+                                overlay=False
+                            )
+                    except Exception:
+                        page.insert_text((center_x - 120, center_y), label, fontname="helv", fontsize=28, color=wm_tint, overlay=False)
+
+                # Discreet anti-piracy running stamps in margins (under text)
+                page.insert_text((42, 22), "AZHUMATHIMAYAM · KTU 2024 SCHEME", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=False)
+                page.insert_text((42, rect.height - 18), "azhumathimayam.invytra.in · All KTU Study Rights Reserved", fontname="helv", fontsize=7.0, color=(0.52, 0.46, 0.44), overlay=False)
 
         clean_title = fields.get("title") or Path(pdf_info["filename"]).stem
         topic = re.sub(r"[^\w\s-]", "", clean_title).strip()
@@ -920,6 +954,22 @@ def upload():
                 metadata_error = (metadata_error + " " if metadata_error else "") + "Cover reference was not accepted; upload a PNG, JPEG, or WebP image."
         else:
             metadata_error = (metadata_error + " " if metadata_error else "") + "Cover reference exceeds the 8 MB limit."
+
+    wm_file = request.files.get("watermark_image")
+    watermark_image_path = None
+    if wm_file and wm_file.filename:
+        raw_wm = wm_file.read(8 * 1024 * 1024 + 1)
+        if len(raw_wm) <= 8 * 1024 * 1024:
+            try:
+                from PIL import Image
+                im_wm = Image.open(io.BytesIO(raw_wm))
+                im_wm.verify()
+                im_wm = Image.open(io.BytesIO(raw_wm)).convert("RGBA")
+                watermark_image_path = job_dir / "custom-watermark.png"
+                im_wm.thumbnail((1600, 1600))
+                im_wm.save(watermark_image_path)
+            except Exception:
+                pass
             
     infos = []
     for index, f in enumerate(files):
@@ -956,6 +1006,7 @@ def upload():
     job = {
         "id": job_id, "dir": str(job_dir), "download_dir": str(download_dir),
         "files": filemap, "logo_path": str(logo_path) if logo_path else None,
+        "watermark_image_path": str(watermark_image_path) if watermark_image_path else None,
         "cover_reference": str(job_dir / "cover-reference.jpg") if reference_saved else None,
         "created": time.time(), "metadata": metadata
     }
@@ -984,7 +1035,8 @@ def upload():
     return jsonify(
         job_id=job_id, documents=infos, metadata_matches=matches, metadata_unmatched=unmatched,
         metadata_error=metadata_error, metadata_records=metadata, defaults=DEFAULTS,
-        logo_uploaded=bool(logo_path), cover_reference_uploaded=reference_saved
+        logo_uploaded=bool(logo_path), cover_reference_uploaded=reference_saved,
+        watermark_image_uploaded=bool(watermark_image_path)
     )
 
 
@@ -1004,6 +1056,52 @@ def preview(job_id, doc_id, page_no):
         return app.response_class(pix.tobytes("png"), mimetype="image/png", headers={"Cache-Control": "no-store"})
     except Exception:
         abort(404)
+
+
+@app.post("/api/upload-watermark/<job_id>")
+def upload_watermark(job_id):
+    job = get_job_state(job_id)
+    if not job:
+        return jsonify(error="Job expired or not found."), 404
+    f = request.files.get("watermark_image")
+    if not f or not f.filename:
+        return jsonify(error="No image file provided."), 400
+    raw = f.read(8 * 1024 * 1024 + 1)
+    if len(raw) > 8 * 1024 * 1024:
+        return jsonify(error="Image exceeds 8 MB limit."), 400
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(raw))
+        im.verify()
+        im = Image.open(io.BytesIO(raw)).convert("RGBA")
+        job_dir = Path(job["dir"])
+        target = job_dir / "custom-watermark.png"
+        im.thumbnail((1600, 1600))
+        im.save(target)
+        job["watermark_image_path"] = str(target)
+        with LOCK:
+            JOBS[job_id] = job
+        save_job_state(job_id, job)
+        return jsonify(ok=True, message="Custom watermark image saved.", url=f"/watermark-preview/{job_id}")
+    except Exception as exc:
+        return jsonify(error=f"Could not process watermark image: {str(exc)[:150]}"), 400
+
+
+@app.get("/watermark-preview/<job_id>")
+def watermark_preview(job_id):
+    job = get_job_state(job_id)
+    if not job:
+        abort(404)
+    target = None
+    if job.get("watermark_image_path") and Path(job["watermark_image_path"]).exists():
+        target = Path(job["watermark_image_path"])
+    elif job.get("logo_path") and Path(job["logo_path"]).exists():
+        target = Path(job["logo_path"])
+    else:
+        target = BASE / "static" / "azhumathimayam-logo.png"
+    if target and target.exists():
+        return send_file(str(target), mimetype="image/png")
+    abort(404)
 
 
 def run_batch(job_id: str, configs: dict[str, Any]) -> None:

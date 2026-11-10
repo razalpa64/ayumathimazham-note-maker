@@ -96,7 +96,10 @@ function blankDefaults() {
     banner_color: '#640000',
     bg_color: '#F7F4EF',
     cat_color: '#8C1D1D',
-    watermark_color: '#B89494'
+    watermark_color: '#B89494',
+    watermark_text: 'AZHUMATHIMAYAM',
+    watermark_subtext: 'KTU 2024 SCHEME NOTES',
+    watermark_type: 'text'
   };
 }
 
@@ -218,6 +221,7 @@ function upload() {
   if ($('#metadata').files[0]) fd.append('metadata', $('#metadata').files[0]);
   if ($('#logo').files[0]) fd.append('logo', $('#logo').files[0]);
   if ($('#coverReference').files[0]) fd.append('cover_reference', $('#coverReference').files[0]);
+  if ($('#watermarkImage')?.files[0]) fd.append('watermark_image', $('#watermarkImage').files[0]);
   
   return safeFetchJSON('/api/upload', { method: 'POST', body: fd });
 }
@@ -367,6 +371,85 @@ function renderReview(resp) {
       themePills.forEach(p => p.classList.remove('active'));
       const themeData = deriveThemeFromHex(hex);
       applyThemeGlobally(themeData);
+    };
+  }
+
+  // Hook up watermark customizer controls
+  const wmTypePills = $$('#wmTypePills .wm-type-pill');
+  const wmTextControls = $('#wmTextControls');
+  const wmImageControls = $('#wmImageControls');
+  const globalWmText = $('#globalWmText');
+  const globalWmSubtext = $('#globalWmSubtext');
+  const reviewWmImageInput = $('#reviewWmImageInput');
+  const wmImageThumb = $('#wmImageThumb');
+  const wmImageThumbWrap = $('#wmImageThumbWrap');
+  const wmImageStatusText = $('#wmImageStatusText');
+
+  if (resp.watermark_image_uploaded) {
+    if (wmImageThumbWrap) wmImageThumbWrap.classList.remove('hidden');
+    if (wmImageThumb) wmImageThumb.src = `/watermark-preview/${state.job}?t=${Date.now()}`;
+    if (wmImageStatusText) wmImageStatusText.textContent = 'Custom watermark image active ✓';
+  }
+
+  wmTypePills.forEach(btn => {
+    btn.onclick = () => {
+      wmTypePills.forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const mode = btn.dataset.wmType;
+      state.defaults.watermark_type = mode;
+      if (mode === 'image') {
+        if (wmTextControls) wmTextControls.classList.add('hidden');
+        if (wmImageControls) wmImageControls.classList.remove('hidden');
+      } else {
+        if (wmTextControls) wmTextControls.classList.remove('hidden');
+        if (wmImageControls) wmImageControls.classList.add('hidden');
+      }
+      state.documents.filter(d => !d.error).forEach(d => {
+        const c = state.configs[d.id];
+        if (c) c.fields.watermark_type = mode;
+      });
+      toast(`Watermark mode: ${mode === 'image' ? 'Image Stamp (under text)' : 'Text Watermark (under text)'}`);
+    };
+  });
+
+  if (globalWmText) {
+    globalWmText.oninput = e => {
+      const val = e.target.value;
+      state.defaults.watermark_text = val;
+      state.documents.filter(d => !d.error).forEach(d => {
+        const c = state.configs[d.id];
+        if (c) c.fields.watermark_text = val;
+      });
+    };
+  }
+
+  if (globalWmSubtext) {
+    globalWmSubtext.oninput = e => {
+      const val = e.target.value;
+      state.defaults.watermark_subtext = val;
+      state.documents.filter(d => !d.error).forEach(d => {
+        const c = state.configs[d.id];
+        if (c) c.fields.watermark_subtext = val;
+      });
+    };
+  }
+
+  if (reviewWmImageInput) {
+    reviewWmImageInput.onchange = async () => {
+      if (!reviewWmImageInput.files[0] || !state.job) return;
+      const fd = new FormData();
+      fd.append('watermark_image', reviewWmImageInput.files[0]);
+      try {
+        const res = await safeFetchJSON(`/api/upload-watermark/${state.job}`, { method: 'POST', body: fd });
+        if (res.ok) {
+          if (wmImageThumbWrap) wmImageThumbWrap.classList.remove('hidden');
+          if (wmImageThumb) wmImageThumb.src = `/watermark-preview/${state.job}?t=${Date.now()}`;
+          if (wmImageStatusText) wmImageStatusText.textContent = 'Custom watermark image saved ✓';
+          toast('✓ Custom watermark image uploaded!');
+        }
+      } catch (err) {
+        toast(`Upload failed: ${err.message}`);
+      }
     };
   }
 
@@ -886,9 +969,13 @@ function runStitchAnimation(doc, config, processPromise) {
           await wait(280);
           if (skipped) break;
 
+          const wmType = (f.watermark_type || 'text').toLowerCase();
+          const wmLabel = wmType === 'image' ? 'Image Stamp' : (f.watermark_text || 'AZHUMATHIMAYAM');
+          const wmCenterText = hudCenter.querySelector('.hud-text');
+          if (wmCenterText) wmCenterText.textContent = `${wmLabel.slice(0, 22)} STAMPED UNDER TEXT`;
           hudCenter.classList.add('active');
-          statWatermark.textContent = '325° Stamped';
-          logTerminal(`Page ${p}: Injected Azhumathimayam 325° anti-piracy vector layer.`);
+          statWatermark.textContent = 'Under Text ✓';
+          logTerminal(`Page ${p}: Stamped ${wmLabel} behind study notes text (overlay=False)`);
           await wait(280);
           if (skipped) break;
 
