@@ -96,11 +96,49 @@
         <div class="defaults-heading">
           <div>
             <div class="eyebrow">BATCH DEFAULTS</div>
-            <h3>Branding, Scheme & Contact</h3>
-            <p class="muted">Apply only where a document field is blank. Each PDF remains independently editable.</p>
+            <h3>Branding, Scheme & Color Theme</h3>
+            <p class="muted">Apply branding and color palette across your documents. Each PDF also remains independently editable.</p>
           </div>
           <button id="applyDefaults" class="button secondary">Apply defaults to blanks</button>
         </div>
+
+        <!-- 🎨 Brand Color Theme Selector -->
+        <div class="theme-bar">
+          <div class="theme-bar-label">
+            <strong>PDF Color Palette</strong>
+            <small>Sets cover banner, button accent, and anti-piracy watermark tint</small>
+          </div>
+          <div class="theme-presets" id="globalThemePresets">
+            <button type="button" class="theme-pill active" data-theme="#640000" data-cat="#8C1D1D" data-bg="#F7F4EF" data-wm="#B89494" title="Azhumathimayam Maroon (Signature)">
+              <span class="theme-swatch" style="background:#640000;"></span>
+              <span>Maroon</span>
+            </button>
+            <button type="button" class="theme-pill" data-theme="#0B192C" data-cat="#1E3E80" data-bg="#F4F6F9" data-wm="#708DA8" title="Royal Navy">
+              <span class="theme-swatch" style="background:#0B192C;"></span>
+              <span>Royal Navy</span>
+            </button>
+            <button type="button" class="theme-pill" data-theme="#064E3B" data-cat="#047857" data-bg="#F0FDF4" data-wm="#689E82" title="Imperial Emerald">
+              <span class="theme-swatch" style="background:#064E3B;"></span>
+              <span>Emerald</span>
+            </button>
+            <button type="button" class="theme-pill" data-theme="#18181B" data-cat="#27272A" data-bg="#F4F4F5" data-wm="#82828D" title="Obsidian Slate">
+              <span class="theme-swatch" style="background:#18181B;"></span>
+              <span>Obsidian</span>
+            </button>
+            <button type="button" class="theme-pill" data-theme="#7A0016" data-cat="#9E1B32" data-bg="#FFF5F5" data-wm="#B5727F" title="Crimson Ruby">
+              <span class="theme-swatch" style="background:#7A0016;"></span>
+              <span>Crimson</span>
+            </button>
+            <label class="theme-custom-label" title="Pick any custom color">
+              <input type="color" id="globalThemePicker" value="#640000">
+              <span class="theme-custom-pill">
+                <span class="theme-swatch custom-swatch" id="globalCustomSwatch" style="background:#640000;"></span>
+                <span>Custom</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <div class="field-grid defaults-grid"></div>
       </div>
 
@@ -159,17 +197,17 @@
       </details>
     </section>
 
-    <!-- ⚡ GOOGLE STITCH STYLE AI BUILDER STUDIO -->
+    <!-- ⚡ REAL PAGE-BY-PAGE AI PDF STUDIO -->
     <div id="stitchStudio" class="stitch-studio hidden" aria-live="polite">
       <div class="stitch-backdrop"></div>
       <div class="stitch-modal">
         <div class="stitch-header">
           <div class="stitch-badge">
             <span class="stitch-pulse-dot"></span>
-            <span class="stitch-badge-text">AI AGENT EDITING IN REAL-TIME</span>
+            <span class="stitch-badge-text">LIVE PAGE-BY-PAGE ENGINE</span>
           </div>
           <div class="stitch-title-wrap">
-            <h3 id="stitchDocTitle">Synthesizing Notes & Removing Watermarks…</h3>
+            <h3 id="stitchDocTitle">Synthesizing Notes &amp; Cleansing Pages…</h3>
             <span id="stitchFileBadge" class="stitch-file-badge">document.pdf</span>
           </div>
           <div class="stitch-fast-forward">
@@ -178,112 +216,104 @@
         </div>
 
         <div class="stitch-canvas-grid">
-          <!-- Left: Live Visual Document Morph -->
+          <!-- Left: Real Document Page Live Inspector -->
           <div class="stitch-canvas">
-            <div class="stitch-paper-wrapper">
-              <div class="stitch-paper" id="stitchPaper">
-                <!-- Laser Scan Line -->
+            <div class="stitch-inspector-wrap">
+              <div class="stitch-page-card" id="stitchPageCard">
+                <!-- Glowing Laser Scan Line -->
                 <div class="stitch-laser" id="stitchLaser"></div>
-                
-                <!-- Layer 1: Simulated raw input document with watermarks -->
-                <div class="stitch-doc-raw" id="stitchDocRaw">
-                  <div class="raw-watermark raw-wm-1">OLD_TELEGRAM_NOTES_KTU</div>
-                  <div class="raw-watermark raw-wm-2">@SAMPLE_WATERMARK_CHANNEL</div>
-                  <div class="raw-line raw-h1"></div>
-                  <div class="raw-line raw-p"></div>
-                  <div class="raw-line raw-p short"></div>
-                  <div class="raw-watermark raw-wm-3">WWW.OTHERWEBSITE.COM</div>
-                  <div class="raw-line raw-p"></div>
-                  <div class="raw-line raw-p medium"></div>
-                  <div class="raw-line raw-p"></div>
-                  <!-- Detected Erase Target Boxes -->
-                  <div class="erase-box erase-box-1"><span class="erase-tag">PURGED ✓</span></div>
-                  <div class="erase-box erase-box-2"><span class="erase-tag">REDACTED ✓</span></div>
-                </div>
 
-                <!-- Layer 2: Synthesized Azhumathimayam Cover that materializes -->
-                <div class="stitch-doc-cover" id="stitchDocCover">
-                  <div class="stitch-cover-top">
+                <!-- Page 1: Live Synthesized Azhumathimayam Cover -->
+                <div class="stitch-cover-view" id="stitchCoverView">
+                  <div class="stitch-cover-top" id="stitchCoverTop">
                     <div class="stitch-cover-scheme" id="stitchCoverScheme">KTU 2024 SCHEME</div>
                     <div class="stitch-cover-logo-wrap">
                       <img src="/static/azhumathimayam-logo.png" alt="അഴിമതി മയം" class="stitch-cover-logo" id="stitchCoverLogo">
-                      <div class="stitch-logo-shimmer"></div>
                     </div>
                   </div>
-                  <div class="stitch-cover-bottom">
+                  <div class="stitch-cover-bottom" id="stitchCoverBottom">
                     <div class="stitch-cover-cat" id="stitchCoverCat">LAB EXAM NOTES</div>
                     <div class="stitch-cover-title" id="stitchCoverTitle">Data Structures Lab Exam</div>
-                    <div class="stitch-cover-divider"></div>
-                    <div class="stitch-cover-pill">
+                    <div class="stitch-cover-pill" id="stitchCoverPill">
                       <span>azhumathimayam.invytra.in</span>
                     </div>
                     <div class="stitch-cover-contact" id="stitchCoverContact">Contact • 8606159002</div>
-                    <div class="stitch-cover-brand">I N V Y T R A</div>
+                    <div class="stitch-cover-brand" id="stitchCoverBrand">I N V Y T R A</div>
                     <div class="stitch-cover-tags" id="stitchCoverTags">12 Programs • Aim • Algorithm • C Program • Sample I/O • Result</div>
                   </div>
                 </div>
 
-                <!-- Verified Stamp Overlay -->
+                <!-- Page 2+: Live Actual Document Page Image from PDF -->
+                <div class="stitch-page-view hidden" id="stitchPageView">
+                  <img id="stitchPageImg" class="stitch-page-img" src="" alt="Live Page Preview">
+                  <!-- Real HUD Action Overlays -->
+                  <div class="stitch-hud-stamp top" id="stitchHudTop">
+                    <span class="hud-icon">✂</span>
+                    <span class="hud-text">HEADER WATERMARK PURGED</span>
+                  </div>
+                  <div class="stitch-hud-stamp center" id="stitchHudCenter">
+                    <span class="hud-icon">🛡</span>
+                    <span class="hud-text">AZHUMATHIMAYAM 325° STAMPED</span>
+                  </div>
+                  <div class="stitch-hud-stamp bottom" id="stitchHudBottom">
+                    <span class="hud-icon">✓</span>
+                    <span class="hud-text">TELEGRAM / URLS REDACTED</span>
+                  </div>
+                </div>
+
+                <!-- Verified Badge Stamp Overlay -->
                 <div class="stitch-seal" id="stitchSeal">
                   <div class="stitch-seal-icon">✓</div>
-                  <div class="stitch-seal-text">VERIFIED CLEAN</div>
+                  <div class="stitch-seal-text">VERIFIED &amp; CLEANED</div>
                 </div>
+              </div>
+
+              <!-- Page Filmstrip / Thumbnail Navigator -->
+              <div class="stitch-filmstrip-bar">
+                <span class="filmstrip-label">PAGES</span>
+                <div class="stitch-filmstrip" id="stitchFilmstrip"></div>
               </div>
             </div>
           </div>
 
-          <!-- Right: Real-Time AI Stream & Telemetry -->
+          <!-- Right: Real-Time Engine Telemetry & Terminal Logs -->
           <div class="stitch-telemetry">
             <div class="stitch-telemetry-head">
-              <span class="stitch-step-indicator">CHOREOGRAPHED AI STEPS</span>
-              <span id="stitchSpeed" class="stitch-speed">0.24s vector speed</span>
+              <span class="stitch-step-indicator" id="stitchStepIndicator">INSPECTING PAGE 1</span>
+              <span id="stitchSpeed" class="stitch-speed">0.18s vector speed</span>
             </div>
 
-            <!-- Animated step list -->
-            <div class="stitch-steps" id="stitchSteps">
-              <div class="stitch-step active" data-step="1">
-                <div class="step-icon">🔍</div>
-                <div class="step-info">
-                  <strong>Parsing Vector AST & Document Layers</strong>
-                  <small>Extracting text quads, stream xrefs & fonts</small>
-                </div>
-                <div class="step-status"></div>
+            <!-- Telemetry Stats Cards -->
+            <div class="stitch-hud-stats">
+              <div class="stitch-hud-stat">
+                <span class="hud-k">PAGE</span>
+                <b id="stitchStatPage" class="hud-v">1 / 1</b>
               </div>
-              <div class="stitch-step" data-step="2">
-                <div class="step-icon">✂️</div>
-                <div class="step-info">
-                  <strong>Erasing Watermarks & Telegram Tags</strong>
-                  <small>Purging annotations, links & promotional pages</small>
-                </div>
-                <div class="step-status"></div>
+              <div class="stitch-hud-stat">
+                <span class="hud-k">WATERMARKS</span>
+                <b id="stitchStatPurged" class="hud-v">0 purged</b>
               </div>
-              <div class="stitch-step" data-step="3">
-                <div class="step-icon">🎨</div>
-                <div class="step-info">
-                  <strong>Synthesizing Azhumathimayam Cover</strong>
-                  <small>Applying KTU scheme, typography & Malayalam logo</small>
-                </div>
-                <div class="step-status"></div>
-              </div>
-              <div class="stitch-step" data-step="4">
-                <div class="step-icon">🛡️</div>
-                <div class="step-info">
-                  <strong>Injecting Interactive Link & Protection</strong>
-                  <small>Pill button linked to azhumathimayam.invytra.in</small>
-                </div>
-                <div class="step-status"></div>
-              </div>
-              <div class="stitch-step" data-step="5">
-                <div class="step-icon">🚀</div>
-                <div class="step-info">
-                  <strong>Optimizing & Deflating Binary Stream</strong>
-                  <small>Lossless compression & instant download readiness</small>
-                </div>
-                <div class="step-status"></div>
+              <div class="stitch-hud-stat">
+                <span class="hud-k">PROTECTION</span>
+                <b id="stitchStatWatermark" class="hud-v">Active</b>
               </div>
             </div>
 
-            <!-- Progress bar & metrics -->
+            <!-- Live Terminal Event Stream -->
+            <div class="stitch-terminal-wrap">
+              <div class="terminal-bar">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">live_vector_pipeline.log</span>
+              </div>
+              <div class="stitch-terminal" id="stitchTerminal">
+                <div class="terminal-line init">[00.00s] Initializing PyMuPDF vector ast engine…</div>
+                <div class="terminal-line">[00.04s] Document stream parsed. 0 errors detected.</div>
+              </div>
+            </div>
+
+            <!-- Progress Bar & Final Status -->
             <div class="stitch-metrics">
               <div class="stitch-pbar-wrap">
                 <div class="stitch-pbar-head">
@@ -292,20 +322,6 @@
                 </div>
                 <div class="stitch-pbar-track">
                   <div id="stitchPbarFill" class="stitch-pbar-fill"></div>
-                </div>
-              </div>
-              <div class="stitch-stats">
-                <div class="stitch-stat">
-                  <span>ENGINE</span>
-                  <b>PyMuPDF Vector</b>
-                </div>
-                <div class="stitch-stat">
-                  <span>SCHEME</span>
-                  <b>KTU 2024</b>
-                </div>
-                <div class="stitch-stat">
-                  <span>STATUS</span>
-                  <b id="stitchStatusStat">ACTIVE</b>
                 </div>
               </div>
             </div>

@@ -100,7 +100,11 @@ app = Flask(__name__, template_folder=str(BASE / "templates"), static_folder=str
 app.config["MAX_CONTENT_LENGTH"] = MAX_BATCH
 app.config["JSON_SORT_KEYS"] = False
 
-FIELDS = ["title", "course_code", "module", "institution", "scheme", "category", "website", "phone", "email", "subtitle", "tags"]
+FIELDS = [
+    "title", "course_code", "module", "institution", "scheme", "category",
+    "website", "phone", "email", "subtitle", "tags",
+    "theme_color", "banner_color", "bg_color", "cat_color", "watermark_color"
+]
 DEFAULTS = {
     "institution": "",
     "scheme": "KTU 2024 SCHEME",
@@ -109,9 +113,27 @@ DEFAULTS = {
     "phone": "8606159002",
     "email": "",
     "subtitle": "",
-    "tags": "12 Programs • Aim • Algorithm • C Program • Sample I/O • Result"
+    "tags": "12 Programs • Aim • Algorithm • C Program • Sample I/O • Result",
+    "theme_color": "#640000",
+    "banner_color": "#640000",
+    "bg_color": "#F7F4EF",
+    "cat_color": "#8C1D1D",
+    "watermark_color": "#B89494"
 }
 BRAND_WORDS = ("invytra", "azhumathimayam", "contact", "www.", "http://", "https://", "phone", "8606159002", "telegram", "whatsapp")
+
+
+def hex_to_rgb(hex_str: str | None, default: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Safely convert hex string (e.g. #640000) to float RGB tuple (0.0 - 1.0)."""
+    try:
+        h = str(hex_str or "").strip().lstrip("#")
+        if len(h) == 6:
+            return (int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0)
+        elif len(h) == 3:
+            return (int(h[0] * 2, 16) / 255.0, int(h[1] * 2, 16) / 255.0, int(h[2] * 2, 16) / 255.0)
+    except Exception:
+        pass
+    return default
 
 
 def prune_expired_jobs(max_age: int = 24 * 60 * 60) -> None:
@@ -301,18 +323,26 @@ def classify_page(page_no: int, total: int, text: str, image_count: int, link_co
     return {"label": label, "confidence": round(confidence, 2), "evidence": evidence}
 
 
-def qr_on_page(page: fitz.Page) -> bool:
-    try:
-        scale = min(1.0, 900.0 / max(page.rect.width, page.rect.height, 1.0))
-        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-        import cv2
-        import numpy as np
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-        detector = cv2.QRCodeDetector()
-        value, _, _ = detector.detectAndDecode(img)
-        return bool(value)
-    except Exception:
+def qr_on_page(page: fitz.Page, page_index: int, total_pages: int, text: str) -> bool:
+    """Hyper-fast QR detector that checks text signals first and only inspects boundary images."""
+    low = text.lower()
+    if any(k in low for k in ("scan qr", "qr code", "scan here", "scan to join")):
+        return True
+    if page_index not in (0, total_pages - 1):
         return False
+    try:
+        if page.get_images(full=True):
+            scale = min(0.4, 320.0 / max(page.rect.width, page.rect.height, 1.0))
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            import cv2
+            import numpy as np
+            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+            detector = cv2.QRCodeDetector()
+            value, _, _ = detector.detectAndDecode(img)
+            return bool(value)
+    except Exception:
+        pass
+    return False
 
 
 def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
@@ -332,6 +362,7 @@ def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
         per_page_annots = []
         annotation_candidates = []
         per_page_qr = []
+        total = doc.page_count
         for i, page in enumerate(doc):
             text = page.get_text("text") or ""
             full_texts.append(text)
@@ -351,7 +382,9 @@ def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
                 s = re.sub(r"\s+", " ", line.strip())
                 if s and len(s) < 140:
                     repeated[s.lower()] += 1
-            per_page_qr.append(qr_on_page(page) if i < 80 and imgs else False)
+            # Fast QR detection only where relevant
+            has_qr = qr_on_page(page, i, total, text) if imgs else False
+            per_page_qr.append(has_qr)
         repeated_brand_lines = {t for t, n in repeated.items() if n >= 2 and any(w in t for w in BRAND_WORDS)}
         candidates = {}
         for t, n in repeated.items():
@@ -455,15 +488,15 @@ def is_third_party_brand(text: str) -> bool:
 def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None) -> None:
     """Draw a precision-crafted Azhumathimayam & Invytra cover page matching the exact design."""
     page = doc.new_page(width=595, height=842)
-    wine = (100 / 255, 0, 0)                  # #640000 deep maroon
-    cream = (247 / 255, 244 / 255, 239 / 255) # #F7F4EF warm ivory/cream
-    ink = (0.12, 0.12, 0.12)                  # #1F1F1F deep charcoal
-    cat_wine = (140 / 255, 29 / 255, 29 / 255) # #8C1D1D wine for category
+    banner_color = hex_to_rgb(fields.get("banner_color") or fields.get("theme_color"), (100 / 255, 0, 0))  # Default #640000
+    bg_color = hex_to_rgb(fields.get("bg_color"), (247 / 255, 244 / 255, 239 / 255))                     # Default #F7F4EF
+    cat_color = hex_to_rgb(fields.get("cat_color"), banner_color)
+    ink = (0.12, 0.12, 0.12)                                                                              # #1F1F1F deep charcoal
 
     # Top 50.4% Banner (0 to 424.2 pt)
-    page.draw_rect(fitz.Rect(0, 0, 595, 424.2), color=wine, fill=wine)
+    page.draw_rect(fitz.Rect(0, 0, 595, 424.2), color=banner_color, fill=banner_color)
     # Bottom 49.6% Section (424.2 to 842 pt)
-    page.draw_rect(fitz.Rect(0, 424.2, 595, 842), color=cream, fill=cream)
+    page.draw_rect(fitz.Rect(0, 424.2, 595, 842), color=bg_color, fill=bg_color)
 
     font_serif = str(BASE / "static" / "DejaVuSerif-Bold.ttf")
     font_sans = str(BASE / "static" / "DejaVuSans.ttf")
@@ -542,7 +575,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
 
     # 3. Category (e.g. LAB EXAM NOTES)
     category = (fields.get("category") or "LAB EXAM NOTES").strip().upper()
-    tracked(category, 480, 8.5, 2.8, cat_wine, 460)
+    tracked(category, 480, 8.5, 2.8, cat_color, 460)
 
     # 4. Subject / Title (e.g. Data Structures \n Lab Exam)
     title = (fields.get("title") or "Data Structures Lab Exam").strip()
@@ -556,7 +589,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     if extra_details:
         y = centered(extra_details[0], y + 2, 10.5, font_sans, (0.35, 0.35, 0.35), 460, max_lines=1)
 
-    # 5. Signature Maroon Pill Button with Website (Width = 478 pt, Height = 40 pt, Radius = 20 pt)
+    # 5. Signature Pill Button with Website (Width = 478 pt, Height = 40 pt, Radius = 20 pt)
     website = (fields.get("website") or "azhumathimayam.invytra.in").strip()
     button_top = 663.0
     button_height = 40.0
@@ -566,10 +599,10 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     try:
         shape = page.new_shape()
         shape.draw_round_rect(button_rect, 20.0)
-        shape.finish(color=wine, fill=wine)
+        shape.finish(color=banner_color, fill=banner_color)
         shape.commit()
     except Exception:
-        page.draw_rect(button_rect, color=wine, fill=wine)
+        page.draw_rect(button_rect, color=banner_color, fill=banner_color)
 
     display = website.replace("https://", "").replace("http://", "").rstrip("/") or "azhumathimayam.invytra.in"
     font_bold_obj = fitz.Font(fontfile=font_bold)
@@ -589,7 +622,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     contact_parts = [p for p in (phone, email) if p]
     contact_text = "Contact • " + (" • ".join(contact_parts) if contact_parts else "8606159002")
     contact_baseline = 739.0
-    centered(contact_text, contact_baseline, 9.5, font_bold, wine, 480, max_lines=1)
+    centered(contact_text, contact_baseline, 9.5, font_bold, banner_color, 480, max_lines=1)
 
     if phone:
         tel = re.sub(r"[^+\d]", "", phone)
@@ -602,7 +635,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
                 pass
 
     # 7. Brand Name (I N V Y T R A)
-    tracked("I N V Y T R A", 780.0, 7.5, 4.0, wine, 220)
+    tracked("I N V Y T R A", 780.0, 7.5, 4.0, banner_color, 220)
 
     # 8. Bottom Summary Line / Tags (e.g. 12 Programs • Aim • Algorithm • C Program • Sample I/O • Result)
     tags = (fields.get("tags") or "12 Programs • Aim • Algorithm • C Program • Sample I/O • Result").strip()
@@ -742,16 +775,51 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             except Exception:
                 pass
 
-            # 6. Azhumathimayam security watermark if enabled
+            # 6. Azhumathimayam clear, prominent anti-piracy watermark
             if config.get("watermark", True) is True and src_idx in watermark_pages:
                 rect = page.rect
+                raw_wm = fields.get("watermark_color") or fields.get("banner_color")
+                wm_rgb = hex_to_rgb(raw_wm, (100 / 255, 0, 0))
+                # Crisp, prominent anti-piracy tint: clearly legible without obscuring underlying text
+                wm_tint = (
+                    min(1.0, wm_rgb[0] * 0.52 + 0.38),
+                    min(1.0, wm_rgb[1] * 0.52 + 0.38),
+                    min(1.0, wm_rgb[2] * 0.52 + 0.38)
+                )
+
                 label = "AZHUMATHIMAYAM"
-                size = min(28, max(16, rect.width * .04))
-                tw = fitz.Font("helv").text_length(label, fontsize=size)
-                x = (rect.width - tw) / 2
-                y = rect.height * .54
-                page.insert_text((x, y), label, fontname="helv", fontsize=size,
-                                 color=(0.94, 0.91, 0.89), overlay=False)
+                sub_label = "KTU 2024 SCHEME NOTES"
+                center_x = rect.width / 2
+                center_y = rect.height / 2
+
+                try:
+                    font_size = min(42, max(24, rect.width * 0.064))
+                    tw = fitz.Font("hebo").text_length(label, fontsize=font_size)
+                    start_x = center_x - (tw / 2) * 0.82
+                    start_y = center_y + (tw / 2) * 0.57
+                    page.insert_text(
+                        (start_x, start_y), label,
+                        fontname="hebo", fontsize=font_size,
+                        color=wm_tint, rotate=325,
+                        overlay=True
+                    )
+
+                    sub_size = font_size * 0.38
+                    sub_tw = fitz.Font("hebo").text_length(sub_label, fontsize=sub_size)
+                    sub_x = center_x - (sub_tw / 2) * 0.82 + 14
+                    sub_y = start_y + 24
+                    page.insert_text(
+                        (sub_x, sub_y), sub_label,
+                        fontname="hebo", fontsize=sub_size,
+                        color=wm_tint, rotate=325,
+                        overlay=True
+                    )
+                except Exception:
+                    page.insert_text((center_x - 120, center_y), label, fontname="helv", fontsize=28, color=wm_tint, overlay=True)
+
+                # Discreet anti-piracy running stamps in top and bottom margins
+                page.insert_text((42, 22), "AZHUMATHIMAYAM · KTU 2024 SCHEME", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=True)
+                page.insert_text((42, rect.height - 18), "azhumathimayam.invytra.in · All KTU Study Rights Reserved", fontname="helv", fontsize=7.0, color=(0.52, 0.46, 0.44), overlay=True)
 
         clean_title = fields.get("title") or Path(pdf_info["filename"]).stem
         topic = re.sub(r"[^\w\s-]", "", clean_title).strip()

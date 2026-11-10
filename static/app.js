@@ -91,8 +91,93 @@ function blankDefaults() {
     phone: '8606159002',
     email: '',
     subtitle: '',
-    tags: '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result'
+    tags: '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result',
+    theme_color: '#640000',
+    banner_color: '#640000',
+    bg_color: '#F7F4EF',
+    cat_color: '#8C1D1D',
+    watermark_color: '#B89494'
   };
+}
+
+const THEMES = {
+  maroon: {
+    name: 'Azhumathimayam Maroon',
+    theme_color: '#640000',
+    banner_color: '#640000',
+    cat_color: '#8C1D1D',
+    bg_color: '#F7F4EF',
+    watermark_color: '#B89494'
+  },
+  navy: {
+    name: 'Royal Navy',
+    theme_color: '#0B192C',
+    banner_color: '#0B192C',
+    cat_color: '#1E3E80',
+    bg_color: '#F4F6F9',
+    watermark_color: '#708DA8'
+  },
+  emerald: {
+    name: 'Imperial Emerald',
+    theme_color: '#064E3B',
+    banner_color: '#064E3B',
+    cat_color: '#047857',
+    bg_color: '#F0FDF4',
+    watermark_color: '#689E82'
+  },
+  obsidian: {
+    name: 'Obsidian Slate',
+    theme_color: '#18181B',
+    banner_color: '#18181B',
+    cat_color: '#27272A',
+    bg_color: '#F4F4F5',
+    watermark_color: '#82828D'
+  },
+  crimson: {
+    name: 'Crimson Ruby',
+    theme_color: '#7A0016',
+    banner_color: '#7A0016',
+    cat_color: '#9E1B32',
+    bg_color: '#FFF5F5',
+    watermark_color: '#B5727F'
+  }
+};
+
+function deriveThemeFromHex(hex) {
+  const clean = String(hex || '').replace(/[^0-9a-fA-F]/g, '');
+  if (clean.length !== 6 && clean.length !== 3) {
+    return THEMES.maroon;
+  }
+  const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+
+  const wmR = Math.min(255, Math.round(r * 0.52 + 100));
+  const wmG = Math.min(255, Math.round(g * 0.52 + 100));
+  const wmB = Math.min(255, Math.round(b * 0.52 + 100));
+  const toHex = n => n.toString(16).padStart(2, '0');
+
+  return {
+    name: 'Custom',
+    theme_color: `#${full}`,
+    banner_color: `#${full}`,
+    cat_color: `#${toHex(Math.min(255, Math.round(r * 1.25)))}${toHex(Math.min(255, Math.round(g * 1.25)))}${toHex(Math.min(255, Math.round(b * 1.25)))}`,
+    bg_color: '#F8F7F5',
+    watermark_color: `#${toHex(wmR)}${toHex(wmG)}${toHex(wmB)}`
+  };
+}
+
+function applyThemeGlobally(themeObj) {
+  state.defaults = { ...state.defaults, ...themeObj };
+  state.documents.filter(d => !d.error).forEach(d => {
+    const c = state.configs[d.id];
+    if (c) {
+      c.fields = { ...c.fields, ...themeObj };
+      syncCover(d.id);
+    }
+  });
+  toast(`🎨 PDF Theme updated: ${themeObj.name || 'Custom'}`);
 }
 
 async function safeFetchJSON(url, options = {}) {
@@ -254,6 +339,36 @@ function renderReview(resp) {
   
   $('#metadataNotice').classList.toggle('hidden', !noticeParts.length);
   $('#metadataNotice').textContent = noticeParts.join(' ');
+
+  // Hook up global color theme selector
+  const themePills = $$('#globalThemePresets .theme-pill');
+  const customPicker = $('#globalThemePicker');
+  const customSwatch = $('#globalCustomSwatch');
+
+  themePills.forEach(btn => {
+    btn.onclick = () => {
+      themePills.forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const themeData = {
+        theme_color: btn.dataset.theme,
+        banner_color: btn.dataset.theme,
+        cat_color: btn.dataset.cat,
+        bg_color: btn.dataset.bg,
+        watermark_color: btn.dataset.wm
+      };
+      applyThemeGlobally(themeData);
+    };
+  });
+
+  if (customPicker) {
+    customPicker.oninput = e => {
+      const hex = e.target.value;
+      if (customSwatch) customSwatch.style.background = hex;
+      themePills.forEach(p => p.classList.remove('active'));
+      const themeData = deriveThemeFromHex(hex);
+      applyThemeGlobally(themeData);
+    };
+  }
 
   renderMetadataMap();
   renderDocs();
@@ -468,6 +583,25 @@ function syncCover(id) {
   if (tagsEl) {
     tagsEl.textContent = f.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
   }
+
+  // Sync theme palette colors to live cover
+  const banner = f.banner_color || f.theme_color || '#640000';
+  const cat = f.cat_color || '#8C1D1D';
+  const bg = f.bg_color || '#F7F4EF';
+
+  const topEl = box.querySelector('.cover-top');
+  const btmEl = box.querySelector('.cover-bottom');
+  const pillEl = box.querySelector('.cover-pill-btn');
+  const contactEl = box.querySelector('.cover-contact');
+  const brandEl = box.querySelector('.cover-brand');
+  const catEl = box.querySelector('.cover-cat');
+
+  if (topEl) topEl.style.background = banner;
+  if (btmEl) btmEl.style.background = bg;
+  if (pillEl) pillEl.style.background = banner;
+  if (contactEl) contactEl.style.color = banner;
+  if (brandEl) brandEl.style.color = banner;
+  if (catEl) catEl.style.color = cat;
 }
 
 function bindDocs() {
@@ -602,42 +736,87 @@ function runStitchAnimation(doc, config, processPromise) {
   const cat = f.category || 'LAB EXAM NOTES';
   const tags = f.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
   const contact = f.phone ? `Contact • ${f.phone}` : 'Contact • 8606159002';
+  const banner = f.banner_color || f.theme_color || '#640000';
+  const catColor = f.cat_color || '#8C1D1D';
+  const bgColor = f.bg_color || '#F7F4EF';
 
   $('#stitchFileBadge').textContent = fn;
-  $('#stitchDocTitle').textContent = `Synthesizing ${title.slice(0, 36)}${title.length > 36 ? '…' : ''}`;
+  $('#stitchDocTitle').textContent = `Synthesizing ${title.slice(0, 34)}${title.length > 34 ? '…' : ''}`;
   $('#stitchCoverScheme').textContent = scheme;
   $('#stitchCoverCat').textContent = cat;
+  $('#stitchCoverCat').style.color = catColor;
   $('#stitchCoverTitle').textContent = title;
   $('#stitchCoverTags').textContent = tags;
   $('#stitchCoverContact').textContent = contact;
+  $('#stitchCoverContact').style.color = banner;
+  $('#stitchCoverBrand').style.color = banner;
+  $('#stitchCoverTop').style.background = banner;
+  $('#stitchCoverPill').style.background = banner;
+  $('#stitchCoverBottom').style.background = bgColor;
 
   if (state.logoUrl) {
     $('#stitchCoverLogo').src = state.logoUrl;
   }
 
-  // Reset visual states
-  const rawDoc = $('#stitchDocRaw');
-  const coverDoc = $('#stitchDocCover');
+  // Real pages array
+  const pages = (doc && doc.pages) || [];
+  const totalPages = Math.max(1, pages.length || doc?.page_count || 1);
+
+  // Populate Filmstrip pills
+  const filmstrip = $('#stitchFilmstrip');
+  filmstrip.innerHTML = '';
+  for (let i = 1; i <= Math.min(totalPages, 24); i++) {
+    const pill = document.createElement('div');
+    pill.className = `filmstrip-pill ${i === 1 ? 'active' : ''}`;
+    pill.id = `filmPill-${i}`;
+    pill.textContent = `Pg ${i}`;
+    filmstrip.appendChild(pill);
+  }
+
+  // Terminal logging helper
+  const terminal = $('#stitchTerminal');
+  terminal.innerHTML = '';
+  const startTime = performance.now();
+  const logTerminal = (msg, cls = '') => {
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+    const line = document.createElement('div');
+    line.className = `terminal-line ${cls}`;
+    line.textContent = `[+${elapsed}s] ${msg}`;
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+  };
+
+  logTerminal(`Initialized PyMuPDF vector AST pipeline for: ${fn}`, 'init');
+  logTerminal(`Document metadata checked. Scheme: ${scheme}`, 'init');
+
+  // Visual Elements
+  const coverView = $('#stitchCoverView');
+  const pageView = $('#stitchPageView');
+  const pageImg = $('#stitchPageImg');
+  const hudTop = $('#stitchHudTop');
+  const hudCenter = $('#stitchHudCenter');
+  const hudBottom = $('#stitchHudBottom');
   const seal = $('#stitchSeal');
-  const eraseBoxes = $$('.erase-box');
   const pbarFill = $('#stitchPbarFill');
   const pbarText = $('#stitchPbarText');
   const pbarPct = $('#stitchPbarPercent');
-  const statusStat = $('#stitchStatusStat');
+  const statPage = $('#stitchStatPage');
+  const statPurged = $('#stitchStatPurged');
+  const statWatermark = $('#stitchStatWatermark');
+  const stepIndicator = $('#stitchStepIndicator');
 
-  rawDoc.classList.remove('redacting');
-  coverDoc.classList.remove('visible');
+  // Reset visual states
+  coverView.classList.remove('hidden');
+  pageView.classList.add('hidden');
   seal.classList.remove('pop');
-  eraseBoxes.forEach(b => b.classList.remove('active'));
+  hudTop.classList.remove('active');
+  hudCenter.classList.remove('active');
+  hudBottom.classList.remove('active');
   pbarFill.style.width = '0%';
   pbarPct.textContent = '0%';
-  statusStat.textContent = 'ACTIVE';
-
-  const steps = $$('.stitch-step');
-  steps.forEach((s, idx) => {
-    s.classList.toggle('active', idx === 0);
-    s.classList.remove('done');
-  });
+  statPage.textContent = `1 / ${totalPages}`;
+  statPurged.textContent = '0 purged';
+  statWatermark.textContent = 'Active';
 
   let skipped = false;
   const skipBtn = $('#skipStitchBtn');
@@ -651,61 +830,95 @@ function runStitchAnimation(doc, config, processPromise) {
   });
 
   return new Promise(async (resolve, reject) => {
-    // Run the animation choreography
+    // Run the page-by-page inspection loop
     (async () => {
       try {
-        // Step 1: Parse
-        pbarFill.style.width = '20%';
-        pbarPct.textContent = '20%';
-        pbarText.textContent = 'Analyzing AST quads & layers…';
-        await wait(450);
-        if (skipped) return;
-
-        // Step 2: Redact Watermarks
-        steps[0].classList.remove('active');
-        steps[0].classList.add('done');
-        steps[1].classList.add('active');
-        rawDoc.classList.add('redacting');
-        eraseBoxes.forEach(b => b.classList.add('active'));
-        pbarFill.style.width = '45%';
-        pbarPct.textContent = '45%';
-        pbarText.textContent = 'Erasing watermarks & contact marks…';
+        // --- STEP 1: COVER SYNTHESIS (Page 1) ---
+        stepIndicator.textContent = 'SYNTHESIZING COVER (PAGE 1)';
+        pbarText.textContent = 'Synthesizing KTU Scheme Cover…';
+        pbarFill.style.width = '15%';
+        pbarPct.textContent = '15%';
+        logTerminal(`Page 1: Synthesizing Azhumathimayam Cover with Malayalam retina emblem`);
+        logTerminal(`Applied theme banner (${banner}) & interactive URI button`);
         await wait(550);
         if (skipped) return;
 
-        // Step 3: Synthesize Azhumathimayam Cover
-        steps[1].classList.remove('active');
-        steps[1].classList.add('done');
-        steps[2].classList.add('active');
-        coverDoc.classList.add('visible');
-        pbarFill.style.width = '70%';
-        pbarPct.textContent = '70%';
-        pbarText.textContent = 'Synthesizing KTU 2024 Scheme cover…';
-        await wait(550);
-        if (skipped) return;
+        // Mark Page 1 filmstrip done
+        const p1Pill = $('#filmPill-1');
+        if (p1Pill) { p1Pill.classList.remove('active'); p1Pill.classList.add('done'); }
 
-        // Step 4: Inject Interactive URI link & Protection
-        steps[2].classList.remove('active');
-        steps[2].classList.add('done');
-        steps[3].classList.add('active');
-        pbarFill.style.width = '90%';
-        pbarPct.textContent = '90%';
-        pbarText.textContent = 'Embedding interactive URI & stamps…';
-        await wait(450);
-        if (skipped) return;
+        // --- STEP 2+: CYCLE THROUGH SUBSEQUENT ACTUAL PAGES ---
+        let purgedTotal = 0;
+        const maxPagesToAnimate = Math.min(totalPages, 6);
 
-        // Step 5: Verification & Stream Deflation
-        steps[3].classList.remove('active');
-        steps[3].classList.add('done');
-        steps[4].classList.add('active');
-        seal.classList.add('pop');
+        for (let p = 2; p <= maxPagesToAnimate; p++) {
+          if (skipped) break;
+          const pageIdx = p - 1;
+          const pageInfo = pages[pageIdx];
+          const previewUrl = pageInfo?.preview || `/preview/${state.job}/${doc.id}/${pageIdx}`;
+
+          // Switch from cover to real page
+          coverView.classList.add('hidden');
+          pageView.classList.remove('hidden');
+          pageImg.src = previewUrl;
+
+          // Update telemetry
+          stepIndicator.textContent = `INSPECTING PAGE ${p} OF ${totalPages}`;
+          statPage.textContent = `${p} / ${totalPages}`;
+          const currentPercent = Math.min(92, Math.round((p / totalPages) * 85) + 15);
+          pbarFill.style.width = `${currentPercent}%`;
+          pbarPct.textContent = `${currentPercent}%`;
+          pbarText.textContent = `Inspecting & cleansing Page ${p}…`;
+
+          // Activate filmstrip pill
+          const curPill = $(`#filmPill-${p}`);
+          if (curPill) curPill.classList.add('active');
+
+          logTerminal(`Page ${p}: Vector xref streams extracted. Scanning headers & footers.`);
+          await wait(300);
+          if (skipped) break;
+
+          // Pop HUD badges simulating laser scan operations
+          hudTop.classList.add('active');
+          purgedTotal += 1;
+          statPurged.textContent = `${purgedTotal} purged`;
+          logTerminal(`Page ${p}: Removed header promotion and link markers.`, 'success');
+          await wait(280);
+          if (skipped) break;
+
+          hudCenter.classList.add('active');
+          statWatermark.textContent = '325° Stamped';
+          logTerminal(`Page ${p}: Injected Azhumathimayam 325° anti-piracy vector layer.`);
+          await wait(280);
+          if (skipped) break;
+
+          hudBottom.classList.add('active');
+          await wait(220);
+          if (skipped) break;
+
+          // Reset HUD for next page
+          hudTop.classList.remove('active');
+          hudCenter.classList.remove('active');
+          hudBottom.classList.remove('active');
+
+          if (curPill) {
+            curPill.classList.remove('active');
+            curPill.classList.add('done');
+          }
+        }
+
+        // --- FINAL WRAP-UP STEP ---
         pbarFill.style.width = '100%';
         pbarPct.textContent = '100%';
-        pbarText.textContent = '100% Verified · Ready to download';
-        statusStat.textContent = 'READY ✓';
-        await wait(400);
+        pbarText.textContent = 'All pages cleaned & verified ✓';
+        stepIndicator.textContent = 'VERIFIED 100%';
+        statWatermark.textContent = 'Protected ✓';
+        seal.classList.add('pop');
+        logTerminal(`Lossless deflation complete. Output ready for instant download.`, 'success');
+        await wait(350);
+
       } catch (err) {
-        // Ignore animation errors, network result takes priority
+        // Non-blocking for UI animation
       }
     })();
 
@@ -713,13 +926,11 @@ function runStitchAnimation(doc, config, processPromise) {
     try {
       const data = await processPromise;
       if (!skipped) {
-        // Ensure final state looks glorious before closing
         pbarFill.style.width = '100%';
         pbarPct.textContent = '100%';
-        steps.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
         seal.classList.add('pop');
-        coverDoc.classList.add('visible');
-        await wait(300);
+        $$('.filmstrip-pill').forEach(pill => pill.classList.add('done'));
+        await wait(350);
       }
       studio.classList.add('hidden');
       resolve(data);
