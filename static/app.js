@@ -95,6 +95,38 @@ function blankDefaults() {
   };
 }
 
+async function safeFetchJSON(url, options = {}) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (netErr) {
+    throw new Error('Network error connecting to server. Please check your connection.');
+  }
+
+  const rawText = await res.text();
+  let data;
+  try {
+    data = JSON.parse(rawText);
+  } catch (parseErr) {
+    if (!res.ok) {
+      if (res.status === 413) throw new Error('File upload too large. Reduce file size and try again.');
+      if (res.status === 504 || res.status === 502) throw new Error('Server timeout or gateway error. Please try again.');
+      if (res.status === 404) throw new Error('The requested session was not found or has expired. Please re-upload.');
+      const cleanSnippet = rawText.slice(0, 150).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      throw new Error(`Server returned error ${res.status}${cleanSnippet ? ': ' + cleanSnippet : ''}`);
+    }
+    throw new Error('Server returned an unreadable response format.');
+  }
+
+  if (!res.ok) {
+    const msg = data.error || data.message || `Request failed with status ${res.status}`;
+    const extra = data.file_errors?.length ? ' — ' + data.file_errors.map(z => `${z.filename}: ${z.error}`).join(' | ') : '';
+    throw new Error(msg + extra);
+  }
+
+  return data;
+}
+
 function upload() {
   const fd = new FormData();
   for (const f of pdfinput.files) fd.append('pdfs', f);
@@ -102,13 +134,7 @@ function upload() {
   if ($('#logo').files[0]) fd.append('logo', $('#logo').files[0]);
   if ($('#coverReference').files[0]) fd.append('cover_reference', $('#coverReference').files[0]);
   
-  return fetch('/api/upload', { method: 'POST', body: fd }).then(async r => {
-    let x = await r.json();
-    if (!r.ok) {
-      throw Error((x.error || 'Upload failed') + (x.file_errors?.length ? ' — ' + x.file_errors.map(z => `${z.filename}: ${z.error}`).join(' | ') : ''));
-    }
-    return x;
-  });
+  return safeFetchJSON('/api/upload', { method: 'POST', body: fd });
 }
 
 $('#uploadForm').addEventListener('submit', async e => {
@@ -570,20 +596,16 @@ $('#processBtn').onclick = async () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   try {
-    let r = await fetch(`/api/process/${state.job}`, {
+    let data = await safeFetchJSON(`/api/process/${state.job}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ documents: state.configs })
     });
-    let data = await r.json();
-    if (!r.ok) throw Error(data.error || 'Processing failed');
 
     while (data.status !== 'complete') {
       paintProgress(data);
-      await new Promise(resolve => setTimeout(resolve, 400));
-      const sr = await fetch(`/api/status/${state.job}`);
-      data = await sr.json();
-      if (!sr.ok) throw Error(data.error || 'Could not get status');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      data = await safeFetchJSON(`/api/status/${state.job}`);
     }
 
     paintProgress(data);

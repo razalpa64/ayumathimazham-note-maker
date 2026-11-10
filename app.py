@@ -24,13 +24,26 @@ from werkzeug.utils import secure_filename
 BASE = Path(__file__).resolve().parent
 IS_VERCEL = bool(os.environ.get("VERCEL"))
 
-# In Vercel or read-only environments, use writable /tmp
-if IS_VERCEL or not os.access(BASE, os.W_OK):
-    RUNTIME = Path(tempfile.gettempdir()) / "azhumathimayam_runtime"
-else:
-    RUNTIME = BASE / "runtime"
+def get_safe_runtime_dir() -> Path:
+    """Ensure a writable runtime folder across Render, Vercel, Docker, and local."""
+    candidates = [
+        Path(tempfile.gettempdir()) / "azhumathimayam_runtime",
+        BASE / "runtime"
+    ]
+    for c in candidates:
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            test_file = c / f".perm_test_{os.getpid()}"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink()
+            return c
+        except Exception:
+            continue
+    fallback = Path(tempfile.gettempdir()) / f"azhumathimayam_{os.getpid()}"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
-RUNTIME.mkdir(parents=True, exist_ok=True)
+RUNTIME = get_safe_runtime_dir()
 DOWNLOAD_ROOT = RUNTIME / "downloads"
 DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 JOBS_DIR = RUNTIME / "jobs"
@@ -56,10 +69,12 @@ LOCK = threading.Lock()
 
 
 def save_job_state(job_id: str, job: dict[str, Any]) -> None:
-    """Persist job state to /tmp so serverless lambdas can share data across requests."""
+    """Persist job state atomically so processes and requests share reliable state."""
     try:
         data = {k: v for k, v in job.items() if k in ("id", "dir", "download_dir", "files", "logo_path", "cover_reference", "created", "metadata", "processing")}
-        (JOBS_DIR / f"{job_id}.json").write_text(json.dumps(data), encoding="utf-8")
+        tmp_file = JOBS_DIR / f"{job_id}.json.tmp"
+        tmp_file.write_text(json.dumps(data, default=str), encoding="utf-8")
+        tmp_file.replace(JOBS_DIR / f"{job_id}.json")
     except Exception:
         pass
 
@@ -868,9 +883,14 @@ def run_batch(job_id: str, configs: dict[str, Any]) -> None:
     if not job:
         return
     state = job.get("processing", {})
+    if not state:
+        state = {"status": "running", "total": len(job.get("files", {})), "done": 0, "current": None, "results": []}
+        job["processing"] = state
     try:
-        for doc_id, info in job["files"].items():
+        for doc_id, info in job.get("files", {}).items():
             state["current"] = info["filename"]
+            with LOCK:
+                JOBS[job_id] = job
             save_job_state(job_id, job)
             try:
                 res = process_one(job, info, configs.get(doc_id, {}))
@@ -879,12 +899,16 @@ def run_batch(job_id: str, configs: dict[str, Any]) -> None:
                 result = {"id": doc_id, "ok": False, "filename": info["filename"], "error": str(exc)[:300]}
             state["results"].append(result)
             state["done"] += 1
+            with LOCK:
+                JOBS[job_id] = job
             save_job_state(job_id, job)
     except Exception as exc:
         state["error"] = str(exc)
     finally:
         state["current"] = None
         state["status"] = "complete"
+        with LOCK:
+            JOBS[job_id] = job
         save_job_state(job_id, job)
 
 
@@ -925,35 +949,38 @@ def cover_reference(job_id):
 def process(job_id):
     job = get_job_state(job_id)
     if not job:
-        return jsonify(error="This batch has expired. Upload the files again."), 404
-    if job.get("processing", {}).get("status") == "running":
-        return jsonify(error="This batch is already being prepared."), 409
+        return jsonify(error="This batch has expired. Upload the files again.", status="failed"), 404
     payload = request.get_json(silent=True) or {}
     configs = payload.get("documents", {})
     if not isinstance(configs, dict):
         configs = {}
-    job["processing"] = {"status": "running", "total": len(job["files"]), "done": 0, "current": None, "results": []}
+    job["processing"] = {"status": "running", "total": len(job.get("files", {})), "done": 0, "current": None, "results": []}
+    with LOCK:
+        JOBS[job_id] = job
     save_job_state(job_id, job)
     
-    if IS_VERCEL:
-        run_batch(job_id, configs)
-        job = get_job_state(job_id) or job
-        return jsonify(status="complete", total=len(job["files"]), done=len(job["files"]), results=job.get("processing", {}).get("results", [])), 200
-    else:
-        thread = threading.Thread(target=run_batch, args=(job_id, configs), daemon=True)
-        thread.start()
-        return jsonify(status="running", total=len(job["files"])), 202
+    # Process synchronously for instant execution and guaranteed single-request reliability
+    run_batch(job_id, configs)
+    
+    job = get_job_state(job_id) or job
+    proc = job.get("processing", {})
+    return jsonify({
+        "status": "complete",
+        "total": proc.get("total", len(job.get("files", {}))),
+        "done": proc.get("done", len(job.get("files", {}))),
+        "results": proc.get("results", [])
+    }), 200
 
 
 @app.get("/api/status/<job_id>")
 def processing_status(job_id):
     job = get_job_state(job_id)
     if not job:
-        return jsonify(error="This batch has expired. Upload the files again."), 404
+        return jsonify(error="This batch has expired. Upload the files again.", status="failed"), 404
     state = job.get("processing")
     if not state:
-        return jsonify(error="No processing job has been started."), 404
-    return jsonify(state)
+        return jsonify(status="complete", total=len(job.get("files", {})), done=len(job.get("files", {})), results=[]), 200
+    return jsonify(state), 200
 
 
 @app.get("/download/<job_id>/<path:filename>")
@@ -965,7 +992,11 @@ def download(job_id, filename):
     if not folder.is_dir():
         folder = DOWNLOADS.get(job_id)
         if not folder or not Path(folder).is_dir():
-            abort(404, description="This download has expired. Prepare the PDF again.")
+            job = get_job_state(job_id)
+            if job and job.get("download_dir") and Path(job["download_dir"]).is_dir():
+                folder = Path(job["download_dir"])
+            else:
+                abort(404, description="This download has expired. Prepare the PDF again.")
         folder = Path(folder)
         
     safe = Path(unquote(filename)).name
@@ -993,7 +1024,11 @@ def download_all(job_id):
     if not folder.is_dir():
         folder = DOWNLOADS.get(job_id)
         if not folder or not Path(folder).is_dir():
-            abort(404, description="This batch has expired.")
+            job = get_job_state(job_id)
+            if job and job.get("download_dir") and Path(job["download_dir"]).is_dir():
+                folder = Path(job["download_dir"])
+            else:
+                abort(404, description="This batch has expired.")
         folder = Path(folder)
         
     pdf_files = list(folder.glob("*.pdf"))
