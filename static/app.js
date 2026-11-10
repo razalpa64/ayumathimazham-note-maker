@@ -97,8 +97,8 @@ function blankDefaults() {
     bg_color: '#F7F4EF',
     cat_color: '#8C1D1D',
     watermark_color: '#B89494',
-    watermark_text: 'AZHUMATHIMAYAM',
-    watermark_subtext: 'STUDY NOTES',
+    watermark_text: 'അഴിമതി മയം',
+    watermark_subtext: '*by invytra',
     watermark_type: 'text'
   };
 }
@@ -586,7 +586,7 @@ function docHTML(d) {
           </div>
 
           <label class="checkline">
-            <input type="checkbox" data-watermark ${c.watermark ? 'checked' : ''}> Add subtle AZHUMATHIMAYAM watermark on retained study pages
+            <input type="checkbox" data-watermark ${c.watermark ? 'checked' : ''}> Add subtle watermark behind text on retained study pages
           </label>
           ${imageSection}
           ${warnings}
@@ -970,7 +970,7 @@ function runStitchAnimation(doc, config, processPromise) {
           if (skipped) break;
 
           const wmType = (f.watermark_type || 'text').toLowerCase();
-          const wmLabel = wmType === 'image' ? 'Image Stamp' : (f.watermark_text || 'AZHUMATHIMAYAM');
+          const wmLabel = wmType === 'image' ? 'Image Stamp' : (f.watermark_text || 'അഴിമതി മയം');
           const wmCenterText = hudCenter.querySelector('.hud-text');
           if (wmCenterText) wmCenterText.textContent = `${wmLabel.slice(0, 22)} STAMPED UNDER TEXT`;
           hudCenter.classList.add('active');

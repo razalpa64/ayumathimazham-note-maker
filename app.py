@@ -120,8 +120,8 @@ DEFAULTS = {
     "bg_color": "#F7F4EF",
     "cat_color": "#8C1D1D",
     "watermark_color": "#B89494",
-    "watermark_text": "AZHUMATHIMAYAM",
-    "watermark_subtext": "STUDY NOTES",
+    "watermark_text": "അഴിമതി മയം",
+    "watermark_subtext": "*by invytra",
     "watermark_type": "text"
 }
 BRAND_WORDS = ("invytra", "azhumathimayam", "contact", "www.", "http://", "https://", "phone", "8606159002", "telegram", "whatsapp")
@@ -819,35 +819,103 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
 
                 # Option B: Custom Text Watermark (drawn UNDER text)
                 else:
-                    label = (fields.get("watermark_text") or "AZHUMATHIMAYAM").strip()
-                    sub_label = (fields.get("watermark_subtext") or "STUDY NOTES").strip()
+                    label = (fields.get("watermark_text") or "അഴിമതി മയം").strip()
+                    sub_label = (fields.get("watermark_subtext") or "*by invytra").strip()
 
                     try:
-                        font_size = min(42, max(20, rect.width * (0.64 / max(1, len(label) * 0.10))))
-                        tw = fitz.Font("hebo").text_length(label, fontsize=font_size)
+                        font_file = BASE / "static" / "NotoSansMalayalam.ttf"
+                        has_malayalam = any("\u0d00" <= ch <= "\u0d7f" for ch in (label + " " + sub_label))
+                        use_fontfile = font_file.exists() and (has_malayalam or not label.isascii())
+
+                        font_size = min(44, max(22, rect.width * (0.64 / max(1, len(label) * 0.10))))
+                        if use_fontfile:
+                            try:
+                                font_obj = fitz.Font(fontfile=str(font_file))
+                                tw = font_obj.text_length(label, fontsize=font_size)
+                            except Exception:
+                                tw = len(label) * font_size * 0.62
+                        else:
+                            try:
+                                tw = fitz.Font("hebo").text_length(label, fontsize=font_size)
+                            except Exception:
+                                tw = len(label) * font_size * 0.62
+
                         start_x = center_x - (tw / 2) * 0.82
                         start_y = center_y + (tw / 2) * 0.57
+                        pt = fitz.Point(start_x, start_y)
+                        rot_mat = fitz.Matrix(-35)
+
                         # overlay=False ensures watermark text is placed UNDER/BEHIND the text!
-                        page.insert_text(
-                            (start_x, start_y), label,
-                            fontname="hebo", fontsize=font_size,
-                            color=wm_tint, rotate=325,
-                            overlay=False
-                        )
+                        if use_fontfile:
+                            try:
+                                page.insert_text(
+                                    pt, label,
+                                    fontfile=str(font_file), fontsize=font_size,
+                                    color=wm_tint, morph=(pt, rot_mat),
+                                    overlay=False
+                                )
+                            except Exception:
+                                page.insert_text(
+                                    pt, label,
+                                    fontfile=str(font_file), fontsize=font_size,
+                                    color=wm_tint,
+                                    overlay=False
+                                )
+                        else:
+                            try:
+                                page.insert_text(
+                                    pt, label,
+                                    fontname="hebo", fontsize=font_size,
+                                    color=wm_tint, morph=(pt, rot_mat),
+                                    overlay=False
+                                )
+                            except Exception:
+                                page.insert_text(
+                                    pt, label,
+                                    fontname="hebo", fontsize=font_size,
+                                    color=wm_tint,
+                                    overlay=False
+                                )
 
                         if sub_label:
-                            sub_size = max(9.0, font_size * 0.38)
-                            sub_tw = fitz.Font("hebo").text_length(sub_label, fontsize=sub_size)
-                            sub_x = center_x - (sub_tw / 2) * 0.82 + 14
-                            sub_y = start_y + 24
-                            page.insert_text(
-                                (sub_x, sub_y), sub_label,
-                                fontname="hebo", fontsize=sub_size,
-                                color=wm_tint, rotate=325,
-                                overlay=False
-                            )
+                            sub_size = max(10.0, font_size * 0.40)
+                            sub_pt = fitz.Point(start_x + 12, start_y + 20)
+                            if use_fontfile:
+                                try:
+                                    page.insert_text(
+                                        sub_pt, sub_label,
+                                        fontfile=str(font_file), fontsize=sub_size,
+                                        color=wm_tint, morph=(sub_pt, rot_mat),
+                                        overlay=False
+                                    )
+                                except Exception:
+                                    page.insert_text(
+                                        sub_pt, sub_label,
+                                        fontfile=str(font_file), fontsize=sub_size,
+                                        color=wm_tint, morph=(sub_pt, rot_mat),
+                                        overlay=False
+                                    )
+                            else:
+                                page.insert_text(
+                                    sub_pt, sub_label,
+                                    fontname="hebo", fontsize=sub_size,
+                                    color=wm_tint, morph=(sub_pt, rot_mat),
+                                    overlay=False
+                                )
                     except Exception:
-                        page.insert_text((center_x - 120, center_y), label, fontname="helv", fontsize=28, color=wm_tint, overlay=False)
+                        try:
+                            logo = BASE / "static" / "azhumathimayam-logo.png"
+                            if logo.exists():
+                                pix = fitz.Pixmap(str(logo))
+                                target_w = min(rect.width * 0.45, 260.0)
+                                target_h = target_w * (pix.height / max(1, pix.width))
+                                target_rect = fitz.Rect(
+                                    center_x - target_w / 2, center_y - target_h / 2,
+                                    center_x + target_w / 2, center_y + target_h / 2
+                                )
+                                page.insert_image(target_rect, filename=str(logo), keep_proportion=True, overlay=False)
+                        except Exception:
+                            pass
 
                 # Discreet anti-piracy running stamps in margins (under text)
                 page.insert_text((42, 22), "AZHUMATHIMAYAM · STUDY NOTES", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=False)
