@@ -421,18 +421,49 @@ def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
         raise ValueError(f"Could not safely analyze this PDF: {str(exc)[:220]}")
 
 
+def is_third_party_brand(text: str) -> bool:
+    """Detect if a text line or watermark contains third-party branding, website, phone, or channel promotion."""
+    clean = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not clean or len(clean) < 3:
+        return False
+    # Never strip Azhumathimayam / Invytra branding
+    if any(k in clean for k in ("azhumathimayam", "invytra", "8606159002")):
+        return False
+    # Common engineering / study materials third-party promo triggers
+    promo_triggers = (
+        "downloaded from", "prepared by", "compiled by", "scanned by", "camscanner",
+        "adobe scan", "wps office", "telegram", "t.me/", "whatsapp", "follow us",
+        "visit us", "subscribe", "youtube", "instagram", "facebook", "join our",
+        "www.", "http://", "https://", "ktunotes", "ktuassist", "ktustudents",
+        "keralanotes", "ktuqbank", "ktuhub", "studylab", "notability", "goodnotes",
+        "scan qr", "join telegram", "all rights reserved"
+    )
+    if any(k in clean for k in promo_triggers):
+        return True
+    # Domain pattern: something.com, something.in, etc.
+    if re.search(r"\b[a-zA-Z0-9-]{3,}\.(?:com|in|org|net|io|co|xyz|online|club|app|site)\b", clean):
+        return True
+    # Social handles: @channelname
+    if re.search(r"@\w{3,30}\b", clean):
+        return True
+    # Phone numbers of other parties (10-12 digits)
+    if re.search(r"\b(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}\b", clean):
+        return True
+    return False
+
+
 def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None) -> None:
     """Draw a precision-crafted Azhumathimayam & Invytra cover page matching the exact design."""
     page = doc.new_page(width=595, height=842)
     wine = (100 / 255, 0, 0)                  # #640000 deep maroon
     cream = (247 / 255, 244 / 255, 239 / 255) # #F7F4EF warm ivory/cream
     ink = (0.12, 0.12, 0.12)                  # #1F1F1F deep charcoal
-    line_color = (0.87, 0.80, 0.79)           # #DEC8C7 soft divider line
+    cat_wine = (140 / 255, 29 / 255, 29 / 255) # #8C1D1D wine for category
 
-    # Top 50.4% Banner (0 to 424 pt)
-    page.draw_rect(fitz.Rect(0, 0, 595, 424), color=wine, fill=wine)
-    # Bottom 49.6% Section (424 to 842 pt)
-    page.draw_rect(fitz.Rect(0, 424, 595, 842), color=cream, fill=cream)
+    # Top 50.4% Banner (0 to 424.2 pt)
+    page.draw_rect(fitz.Rect(0, 0, 595, 424.2), color=wine, fill=wine)
+    # Bottom 49.6% Section (424.2 to 842 pt)
+    page.draw_rect(fitz.Rect(0, 424.2, 595, 842), color=cream, fill=cream)
 
     font_serif = str(BASE / "static" / "DejaVuSerif-Bold.ttf")
     font_sans = str(BASE / "static" / "DejaVuSans.ttf")
@@ -462,7 +493,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
         return lines
 
     def centered(text: str, baseline: float, size: float, fontfile: str, color,
-                 max_width: float = 500, max_lines: int = 1, leading: float = 1.22) -> float:
+                 max_width: float = 500, max_lines: int = 1, leading: float = 1.25) -> float:
         font = fitz.Font(fontfile=fontfile)
         lines = wrap(text, font, size, max_width, max_lines)
         for line in lines:
@@ -490,58 +521,51 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
 
     # 1. Scheme Text at Top (e.g. KTU 2024 SCHEME)
     scheme = (fields.get("scheme") or "KTU 2024 SCHEME").strip()
-    tracked(scheme, 88, 9.0, 2.6, (1, 1, 1), 480)
+    tracked(scheme, 86, 8.5, 3.2, (1, 1, 1), 460)
 
-    # 2. Authentic Malayalam Wordmark Logo in Center of Maroon Banner
+    # 2. Ultra-Sharp Authentic Malayalam Wordmark Logo in Center of Maroon Banner
     logo_file = logo_path if (logo_path and logo_path.exists()) else (BASE / "static" / "azhumathimayam-logo.png")
     if logo_file.exists():
         try:
             pix = fitz.Pixmap(str(logo_file))
-            target_w = 250.0
+            target_w = 252.0
             ratio = target_w / max(1, pix.width)
             target_h = pix.height * ratio
-            center_y = 255.0
+            center_y = 252.0
             target_rect = fitz.Rect((595 - target_w) / 2, center_y - target_h / 2,
                                     (595 + target_w) / 2, center_y + target_h / 2)
             page.insert_image(target_rect, filename=str(logo_file), keep_proportion=True)
         except Exception:
-            centered("അഴിമതി മയം", 255, 34, font_bold, (1, 1, 1))
+            centered("അഴിമതി മയം", 252, 36, font_bold, (1, 1, 1))
     else:
-        centered("അഴിമതി മയം", 255, 34, font_bold, (1, 1, 1))
+        centered("അഴിമതി മയം", 252, 36, font_bold, (1, 1, 1))
 
     # 3. Category (e.g. LAB EXAM NOTES)
     category = (fields.get("category") or "LAB EXAM NOTES").strip().upper()
-    tracked(category, 476, 9.5, 2.4, wine, 480)
+    tracked(category, 480, 8.5, 2.8, cat_wine, 460)
 
-    # 4. Subject / Title (e.g. Data Structures Lab Exam)
+    # 4. Subject / Title (e.g. Data Structures \n Lab Exam)
     title = (fields.get("title") or "Data Structures Lab Exam").strip()
-    title_size = 28 if len(title) <= 28 else 25 if len(title) <= 55 else 22
-    y = centered(title, 532, title_size, font_serif, ink, 490, max_lines=3, leading=1.22) + 2
+    title_size = 27.0 if len(title) <= 30 else 24.0 if len(title) <= 55 else 20.0
+    y = centered(title, 536, title_size, font_serif, ink, 470, max_lines=2, leading=1.30)
 
-    # 5. Optional details (Subtitle / Institution / Course Code)
-    subtitle = fields.get("subtitle", "").strip()
-    institution = fields.get("institution", "").strip()
+    # Optional course code / module subtitle if provided
     course_bits = [x for x in (fields.get("course_code", "").strip(), fields.get("module", "").strip()) if x]
-    
-    details = [x for x in (subtitle, institution) if x]
-    if course_bits:
-        details.append(" · ".join(course_bits))
-        
-    for detail in details[:2]:
-        y = centered(detail, y + 4, 10.5, font_sans, (0.3, 0.3, 0.3), 480, max_lines=1) + 2
+    subtitle = fields.get("subtitle", "").strip() or fields.get("institution", "").strip()
+    extra_details = [x for x in (subtitle, " · ".join(course_bits) if course_bits else "") if x]
+    if extra_details:
+        y = centered(extra_details[0], y + 2, 10.5, font_sans, (0.35, 0.35, 0.35), 460, max_lines=1)
 
-    # 6. Subtle Horizontal Divider Line
-    divider_y = max(634, min(656, y + 14))
-    page.draw_line((58, divider_y), (537, divider_y), color=line_color, width=0.7)
-
-    # 7. Signature Maroon Pill Button with Website
+    # 5. Signature Maroon Pill Button with Website (Width = 478 pt, Height = 40 pt, Radius = 20 pt)
     website = (fields.get("website") or "azhumathimayam.invytra.in").strip()
-    button_top = divider_y + 18
-    button_rect = fitz.Rect(52, button_top, 543, button_top + 40)
+    button_top = 663.0
+    button_height = 40.0
+    button_width = 478.0
+    button_rect = fitz.Rect((595 - button_width) / 2, button_top, (595 + button_width) / 2, button_top + button_height)
     
     try:
         shape = page.new_shape()
-        shape.draw_round_rect(button_rect, 8)
+        shape.draw_round_rect(button_rect, 20.0)
         shape.finish(color=wine, fill=wine)
         shape.commit()
     except Exception:
@@ -549,7 +573,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
 
     display = website.replace("https://", "").replace("http://", "").rstrip("/") or "azhumathimayam.invytra.in"
     font_bold_obj = fitz.Font(fontfile=font_bold)
-    btn_size = 12.0 if font_bold_obj.text_length(display, fontsize=12.0) <= 460 else 10.0
+    btn_size = 11.5 if font_bold_obj.text_length(display, fontsize=11.5) <= 440 else 10.0
     btn_w = font_bold_obj.text_length(display, fontsize=btn_size)
     page.insert_text(((595 - btn_w) / 2, button_top + 25.5), display, fontfile=font_bold, fontsize=btn_size, color=(1, 1, 1))
 
@@ -559,31 +583,31 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     except Exception:
         pass
 
-    # 8. Contact Info (Contact • 8606159002)
+    # 6. Contact Line (Contact • 8606159002)
     phone = (fields.get("phone") or "8606159002").strip()
     email = (fields.get("email") or "").strip()
     contact_parts = [p for p in (phone, email) if p]
     contact_text = "Contact • " + (" • ".join(contact_parts) if contact_parts else "8606159002")
-    contact_baseline = min(746, button_top + 72)
-    centered(contact_text, contact_baseline, 10, font_bold, wine, 500, max_lines=1)
+    contact_baseline = 739.0
+    centered(contact_text, contact_baseline, 9.5, font_bold, wine, 480, max_lines=1)
 
     if phone:
         tel = re.sub(r"[^+\d]", "", phone)
         if tel:
             try:
-                c_w = font_bold_obj.text_length(contact_text, fontsize=10)
+                c_w = font_bold_obj.text_length(contact_text, fontsize=9.5)
                 left_x = (595 - c_w) / 2
                 page.insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(left_x, contact_baseline - 12, left_x + c_w, contact_baseline + 4), "uri": "tel:" + tel})
             except Exception:
                 pass
 
-    # 9. Brand Name (I N V Y T R A)
-    tracked("I N V Y T R A", 780, 7.5, 3.2, wine, 240)
+    # 7. Brand Name (I N V Y T R A)
+    tracked("I N V Y T R A", 780.0, 7.5, 4.0, wine, 220)
 
-    # 10. Bottom Summary Line / Tags (e.g. 12 Programs • Aim • Algorithm • C Program • Sample I/O • Result)
+    # 8. Bottom Summary Line / Tags (e.g. 12 Programs • Aim • Algorithm • C Program • Sample I/O • Result)
     tags = (fields.get("tags") or "12 Programs • Aim • Algorithm • C Program • Sample I/O • Result").strip()
     if tags:
-        centered(tags, 818, 7.5, font_sans, (0.48, 0.45, 0.44), 520, max_lines=1)
+        centered(tags, 816.0, 7.5, font_sans, (0.48, 0.45, 0.44), 520, max_lines=1)
 
 
 def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
@@ -657,32 +681,68 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                         page.delete_image(out_xref)
                         deleted_output_xrefs.add(out_xref)
                         image_removal_report.append({"page": src_idx + 1, "object": out_xref})
+            # 2. Automatically detect and strip third-party headers, footers & brand watermarks
+            header_limit = min(78.0, page.rect.height * 0.12)
+            footer_limit = max(page.rect.height - 72.0, page.rect.height * 0.88)
+            try:
+                blocks = page.get_text("blocks")
+                for block in blocks:
+                    bx0, by0, bx1, by1, btext, bno, btype = block[:7]
+                    if btype != 0:
+                        continue
+                    in_header_footer = (by1 <= header_limit) or (by0 >= footer_limit)
+                    if is_third_party_brand(btext) or (in_header_footer and is_third_party_brand(btext)):
+                        clean_b = re.sub(r"\s+", " ", btext).strip()
+                        # Do not redact solitary page numbers
+                        if re.fullmatch(r"(?i)(?:page\s*)?\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?", clean_b):
+                            continue
+                        rect = fitz.Rect(bx0, by0, bx1, by1)
+                        page.add_redact_annot(rect, fill=None, cross_out=False)
+                        removal_report.append({"text": clean_b[:80], "page": src_idx + 1, "removed": 1})
+            except Exception:
+                pass
+
+            # 3. User configured exact marks or suggestions
             for mark in exact_marks:
                 if not mark or len(mark) < 3:
                     continue
-                rects = page.search_for(mark, quads=False)
-                if rects:
-                    for rect in rects:
-                        page.add_redact_annot(rect, fill=None, cross_out=False)
-                    page.apply_redactions(images=0, graphics=0, text=0)
-                    removal_report.append({"text": mark, "page": src_idx + 1, "removed": len(rects)})
-            if config.get("remove_brand_links") is True:
                 try:
-                    for link in list(page.get_links()):
-                        uri = (link.get("uri") or "").lower()
-                        if any(term in uri for term in ("invytra", "azhumathimayam", "telegram", "whatsapp")):
-                            page.delete_link(link)
+                    rects = page.search_for(mark, quads=False)
+                    if rects:
+                        for rect in rects:
+                            page.add_redact_annot(rect, fill=None, cross_out=False)
+                        removal_report.append({"text": mark, "page": src_idx + 1, "removed": len(rects)})
                 except Exception:
                     pass
-            if config.get("remove_brand_annotations") is True:
-                try:
-                    for annot in list(page.annots() or []):
-                        info = annot.info or {}
-                        desc = " ".join(str(info.get(k, "")) for k in ("content", "title", "subject", "name")).lower()
-                        if any(term in desc for term in ("invytra", "azhumathimayam", "telegram", "whatsapp")):
-                            page.delete_annot(annot)
-                except Exception:
-                    pass
+
+            # Apply all redactions cleanly at vector level
+            try:
+                page.apply_redactions(images=0, graphics=0, text=0)
+            except Exception:
+                pass
+
+            # 4. Remove all third-party external links (keep internal and invytra links)
+            try:
+                for link in list(page.get_links()):
+                    uri = (link.get("uri") or "").lower()
+                    if uri:
+                        if "azhumathimayam" in uri or "invytra" in uri:
+                            continue
+                        page.delete_link(link)
+            except Exception:
+                pass
+
+            # 5. Remove third-party annotations
+            try:
+                for annot in list(page.annots() or []):
+                    info = annot.info or {}
+                    desc = " ".join(str(info.get(k, "")) for k in ("content", "title", "subject", "name")).lower()
+                    if is_third_party_brand(desc) or any(term in desc for term in ("t.me", "telegram", "whatsapp", "www.", "http", "@", ".com", ".in", "download")):
+                        page.delete_annot(annot)
+            except Exception:
+                pass
+
+            # 6. Azhumathimayam security watermark if enabled
             if config.get("watermark", True) is True and src_idx in watermark_pages:
                 rect = page.rect
                 label = "AZHUMATHIMAYAM"

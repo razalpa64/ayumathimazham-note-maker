@@ -189,21 +189,24 @@ function initConfigs() {
       }
     });
 
-    // Check remembered rules
-    let autoTexts = (d.text_candidates || [])
-      .filter(x => rules().some(rule => x.text.toLowerCase().includes(rule.toLowerCase())))
-      .map(x => x.text);
+    // Automatically pre-select all detected 3rd-party candidate watermarks and remembered rules
+    let autoTexts = (d.text_candidates || []).map(x => x.text);
+
+    // Auto-detect promo pages for removal
+    let autoRemovePages = d.pages
+      .filter(p => ['Possible branded cover', 'Promotional page', 'QR / contact page'].includes(p.classification.label))
+      .map(p => p.number - 1);
 
     state.configs[d.id] = {
       fields: f,
-      remove_pages: [],
+      remove_pages: autoRemovePages,
       remove_texts: autoTexts,
       manual_mark: '',
       manual_include: false,
       watermark: true,
       watermark_pages: d.pages.filter(p => p.classification.label === 'Study material').map(p => p.number - 1),
-      remove_brand_links: false,
-      remove_brand_annotations: false,
+      remove_brand_links: true,
+      remove_brand_annotations: true,
       remove_images: []
     };
   });

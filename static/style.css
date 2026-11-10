@@ -682,22 +682,23 @@ body {
 
 .cover-cat {
   font-size: 7px;
-  letter-spacing: 0.2em;
-  color: var(--wine);
+  letter-spacing: 0.22em;
+  color: #8C1D1D;
   font-weight: 800;
   text-transform: uppercase;
   min-height: 12px;
+  margin-top: 4px;
 }
 
 .cover-title {
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 700;
-  font-size: 14.5px;
-  line-height: 1.22;
+  font-size: 14px;
+  line-height: 1.25;
   color: #1a1a1a;
-  margin: 4px 0 2px;
+  margin: 6px 0 4px;
   overflow-wrap: anywhere;
-  max-height: 48px;
+  max-height: 52px;
   overflow: hidden;
 }
 
@@ -709,23 +710,21 @@ body {
 }
 
 .cover-divider {
-  width: 86%;
-  height: 0.7px;
-  background: var(--line-soft);
-  margin: 2px 0 5px;
+  display: none;
 }
 
-/* Signature Rounded Maroon Pill Button */
+/* Signature Rounded Maroon Pill Button (80.4% width, 100% round ends) */
 .cover-pill-btn {
-  width: 90%;
+  width: 80.4%;
   background: var(--wine);
   color: white;
-  border-radius: 20px;
-  padding: 5px 8px;
-  box-shadow: 0 2px 6px rgba(100, 0, 0, 0.2);
+  border-radius: 999px;
+  padding: 6px 12px;
+  box-shadow: 0 2px 6px rgba(100, 0, 0, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;
+  margin: 4px auto 2px;
 }
 
 .cover-link-text {
