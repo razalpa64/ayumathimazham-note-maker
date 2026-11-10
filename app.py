@@ -500,7 +500,6 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     # Bottom 49.6% Section (424.2 to 842 pt)
     page.draw_rect(fitz.Rect(0, 424.2, 595, 842), color=bg_color, fill=bg_color)
 
-    font_serif = str(BASE / "static" / "DejaVuSerif-Bold.ttf")
     font_sans = str(BASE / "static" / "DejaVuSans.ttf")
     font_bold = str(BASE / "static" / "DejaVuSans-Bold.ttf")
 
@@ -581,30 +580,27 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
 
     # 4. Subject / Title (e.g. Data Structures \n Lab Exam)
     title = (fields.get("title") or "Data Structures Lab Exam").strip()
-    title_size = 27.0 if len(title) <= 30 else 24.0 if len(title) <= 55 else 20.0
-    y = centered(title, 536, title_size, font_serif, ink, 470, max_lines=2, leading=1.30)
+    # A clean sans face keeps long course titles legible and matches the cover's
+    # restrained, editorial look. Step the size down gently for longer titles.
+    title_size = 26.0 if len(title) <= 30 else 23.5 if len(title) <= 55 else 20.0
+    y = centered(title, 536, title_size, font_sans, ink, 470, max_lines=2, leading=1.18)
 
-    # Optional course code / module subtitle if provided
+    # Keep supporting details separate from the title so course metadata is not
+    # silently lost, while giving the title block enough breathing room.
     course_bits = [x for x in (fields.get("course_code", "").strip(), fields.get("module", "").strip()) if x]
     subtitle = fields.get("subtitle", "").strip() or fields.get("institution", "").strip()
     extra_details = [x for x in (subtitle, " · ".join(course_bits) if course_bits else "") if x]
-    if extra_details:
-        y = centered(extra_details[0], y + 2, 10.5, font_sans, (0.35, 0.35, 0.35), 460, max_lines=1)
+    for detail in extra_details[:2]:
+        y = centered(detail, y + 2, 9.5, font_sans, (0.35, 0.35, 0.35), 460, max_lines=1)
 
-    # 5. Signature Pill Button with Website (Width = 478 pt, Height = 40 pt, Radius = 20 pt)
+    # 5. Signature website bar (kept square-cornered to match the cover design)
     website = (fields.get("website") or "azhumathimayam.invytra.in").strip()
     button_top = 663.0
     button_height = 40.0
     button_width = 478.0
     button_rect = fitz.Rect((595 - button_width) / 2, button_top, (595 + button_width) / 2, button_top + button_height)
     
-    try:
-        shape = page.new_shape()
-        shape.draw_round_rect(button_rect, 20.0)
-        shape.finish(color=banner_color, fill=banner_color)
-        shape.commit()
-    except Exception:
-        page.draw_rect(button_rect, color=banner_color, fill=banner_color)
+    page.draw_rect(button_rect, color=banner_color, fill=banner_color)
 
     display = website.replace("https://", "").replace("http://", "").rstrip("/") or "azhumathimayam.invytra.in"
     font_bold_obj = fitz.Font(fontfile=font_bold)
