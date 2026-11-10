@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Azhumathimayam Note Maker — KTU Study & Lab Exam Studio</title>
+  <title>Azhumathimayam Note Maker — Universal Study & Lab Exam Studio</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
@@ -14,14 +14,13 @@
       <span class="brand-mark">അ</span>
       <span>AZHUMATHIMAYAM <small>NOTE MAKER · INVYTRA</small></span>
     </a>
-    <div class="local-pill"><i></i> KTU 2024 Scheme &bull; Local-First</div>
+    <div class="local-pill"><i></i> Universal Scheme &bull; All Universities &bull; Local-First</div>
   </header>
   <main class="shell">
     <section class="hero">
-      <div class="eyebrow">KTU EXAM & LAB NOTE STUDIO</div>
-      <h1>Smart Finish for<br><em>KTU Study Notes.</em></h1>
-      <p>Rebrand, clean watermarks, and generate pristine Azhumathimayam & Invytra covers with exact KTU 2024 Scheme
-        styling. High-performance, local-first, zero privacy leakage.</p>
+      <div class="eyebrow">EXAM &amp; STUDY NOTE STUDIO · ALL UNIVERSITIES &amp; COLLEGES</div>
+      <h1>Smart Finish for<br><em>Study &amp; Exam Notes.</em></h1>
+      <p>Rebrand, clean watermarks, and generate pristine Azhumathimayam &amp; Invytra covers for any university, college, or academic scheme. High-performance, local-first, zero privacy leakage.</p>
       <div class="stepbar">
         <div class="step active" data-step="1"><b>01</b><span>Upload</span></div>
         <div class="step-line"></div>
@@ -87,12 +86,12 @@
         <div>
           <div class="eyebrow">STAGE 02 · REVIEW EVERY FILE</div>
           <h2>Fine-tune decisions & covers</h2>
-          <p class="muted">Check suggested titles, KTU scheme, and page removals. Use Smart Auto-Clean to prepare in one
+          <p class="muted">Check suggested titles, academic scheme, and page removals. Use Smart Auto-Clean to prepare in one
             click.</p>
         </div>
         <div class="toolbar-actions">
           <button class="button secondary" id="autoCleanBtn"
-            title="Auto-select promo pages and apply recommended KTU defaults">⚡ Smart Auto-Clean</button>
+            title="Auto-select promo pages and apply recommended defaults">⚡ Smart Auto-Clean</button>
           <button class="button ghost" id="newBatch">＋ New batch</button>
         </div>
       </div>
@@ -165,7 +164,7 @@
             </div>
             <div class="field">
               <label>Secondary / Scheme Text</label>
-              <input id="globalWmSubtext" value="KTU 2024 SCHEME NOTES" placeholder="e.g. KTU 2024 SCHEME NOTES (optional)">
+              <input id="globalWmSubtext" value="STUDY NOTES" placeholder="e.g. 2024 SCHEME, STUDY NOTES (optional)">
             </div>
           </div>
 
@@ -233,7 +232,7 @@
           <p>Save exact text you recognize as old watermarks or branding (e.g. old Telegram channels, website URLs).
             Matching suggestions will be pre-checked for your review.</p>
           <div class="rules-row">
-            <input id="ruleInput" placeholder="e.g. @ktu_notes or oldsite.com">
+            <input id="ruleInput" placeholder="e.g. @telegram_channel or oldsite.com">
             <button class="button secondary" id="addRule">Remember text</button>
             <button class="button ghost" id="resetRules">Reset rules</button>
           </div>
@@ -271,7 +270,7 @@
                 <!-- Page 1: Live Synthesized Azhumathimayam Cover -->
                 <div class="stitch-cover-view" id="stitchCoverView">
                   <div class="stitch-cover-top" id="stitchCoverTop">
-                    <div class="stitch-cover-scheme" id="stitchCoverScheme">KTU 2024 SCHEME</div>
+                    <div class="stitch-cover-scheme" id="stitchCoverScheme">2024 SCHEME</div>
                     <div class="stitch-cover-logo-wrap">
                       <img src="/static/azhumathimayam-logo.png" alt="അഴിമതി മയം" class="stitch-cover-logo" id="stitchCoverLogo">
                     </div>
@@ -377,7 +376,7 @@
 
     <footer>
       <span>Azhumathimayam Note Maker · INVYTRA PDF Studio</span>
-      <span>Local-first · KTU 2024 Scheme & Study Note Preparation</span>
+      <span>Local-first · Universal Scheme & Study Note Preparation for All Universities & Colleges</span>
     </footer>
   </main>
   <div id="toast" class="toast" aria-live="polite"></div>

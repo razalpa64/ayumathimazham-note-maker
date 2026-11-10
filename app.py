@@ -108,7 +108,7 @@ FIELDS = [
 ]
 DEFAULTS = {
     "institution": "",
-    "scheme": "KTU 2024 SCHEME",
+    "scheme": "2024 SCHEME",
     "category": "LAB EXAM NOTES",
     "website": "azhumathimayam.invytra.in",
     "phone": "8606159002",
@@ -121,7 +121,7 @@ DEFAULTS = {
     "cat_color": "#8C1D1D",
     "watermark_color": "#B89494",
     "watermark_text": "AZHUMATHIMAYAM",
-    "watermark_subtext": "KTU 2024 SCHEME NOTES",
+    "watermark_subtext": "STUDY NOTES",
     "watermark_type": "text"
 }
 BRAND_WORDS = ("invytra", "azhumathimayam", "contact", "www.", "http://", "https://", "phone", "8606159002", "telegram", "whatsapp")
@@ -260,12 +260,10 @@ def extract_suggestions(doc: fitz.Document, page_summaries: list[dict[str, Any]]
     if inst:
         institution = re.sub(r"\s+", " ", inst.group(0)).strip()[:90]
 
-    scheme = "KTU 2024 SCHEME"
-    sm = re.search(r"\b(?:KTU\s*)?20\d{2}\s*(?:scheme|scheme year)\b", text + " " + filename, re.I)
+    scheme = "2024 SCHEME"
+    sm = re.search(r"\b(?:[A-Z]{2,8}\s*)?20\d{2}\s*(?:scheme|scheme year|syllabus)\b", text + " " + filename, re.I)
     if sm:
         scheme = re.sub(r"\s+", " ", sm.group(0)).upper()
-        if not scheme.startswith("KTU"):
-            scheme = "KTU " + scheme
 
     category = "LAB EXAM NOTES"
     if any(k in low_text[:800] or k in filename.lower() for k in ["lab", "practical", "exam", "viva", "program", "experiment"]):
@@ -556,8 +554,8 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
             page.insert_text((x, baseline), char, fontfile=font_bold, fontsize=size, color=color)
             x += font.text_length(char, fontsize=size) + tracking
 
-    # 1. Scheme Text at Top (e.g. KTU 2024 SCHEME)
-    scheme = (fields.get("scheme") or "KTU 2024 SCHEME").strip()
+    # 1. Scheme Text at Top (e.g. 2024 SCHEME)
+    scheme = (fields.get("scheme") or "2024 SCHEME").strip()
     tracked(scheme, 86, 8.5, 3.2, (1, 1, 1), 460)
 
     # 2. Ultra-Sharp Authentic Malayalam Wordmark Logo in Center of Maroon Banner
@@ -822,7 +820,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                 # Option B: Custom Text Watermark (drawn UNDER text)
                 else:
                     label = (fields.get("watermark_text") or "AZHUMATHIMAYAM").strip()
-                    sub_label = (fields.get("watermark_subtext") or "KTU 2024 SCHEME NOTES").strip()
+                    sub_label = (fields.get("watermark_subtext") or "STUDY NOTES").strip()
 
                     try:
                         font_size = min(42, max(20, rect.width * (0.64 / max(1, len(label) * 0.10))))
@@ -852,8 +850,8 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                         page.insert_text((center_x - 120, center_y), label, fontname="helv", fontsize=28, color=wm_tint, overlay=False)
 
                 # Discreet anti-piracy running stamps in margins (under text)
-                page.insert_text((42, 22), "AZHUMATHIMAYAM · KTU 2024 SCHEME", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=False)
-                page.insert_text((42, rect.height - 18), "azhumathimayam.invytra.in · All KTU Study Rights Reserved", fontname="helv", fontsize=7.0, color=(0.52, 0.46, 0.44), overlay=False)
+                page.insert_text((42, 22), "AZHUMATHIMAYAM · STUDY NOTES", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=False)
+                page.insert_text((42, rect.height - 18), "azhumathimayam.invytra.in · All Study Rights Reserved", fontname="helv", fontsize=7.0, color=(0.52, 0.46, 0.44), overlay=False)
 
         clean_title = fields.get("title") or Path(pdf_info["filename"]).stem
         topic = re.sub(r"[^\w\s-]", "", clean_title).strip()

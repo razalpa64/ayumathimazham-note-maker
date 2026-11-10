@@ -1,21 +1,22 @@
 # അഴിമതി മയം (Azhumathimayam) — Note Maker
 
-A high-performance, local-first engineering note studio designed for KTU (APJ Abdul Kalam Technological University) 2024 Scheme study materials, lab exam records, and academic notes.
+A high-performance, local-first study and engineering note studio designed for all universities, colleges, academic boards, and syllabus schemes (KTU, Calicut, MG University, Anna University, VTU, CUSAT, Autonomous Colleges, and more).
 
-Powered by a deterministic rules-based engine, Azhumathimayam Note Maker cleans up watermark clutter, trims old promotional pages, and generates covers with Malayalam typography and signature pill navigation.
+Powered by a deterministic rules-based vector engine, Azhumathimayam Note Maker cleans up watermark clutter, trims old promotional pages, and generates covers with Malayalam typography, custom color themes, and signature pill navigation.
 
 ---
 
 ## Highlights
 
-- **Signature Maroon Cover Design**: Exactly reproduces the KTU 2024 Scheme split-layout:
-  - Top half (50.4%): Deep maroon (`#640000`) banner featuring the authentic white **"അഴിമതി മയം"** (Azhumathimayam) wordmark and letter-spaced scheme headers.
-  - Bottom half (49.6%): Warm ivory/cream (`#F7F4EF`) section with bold serif subject titles, structured course tags, and a rounded maroon pill link button.
+- **Signature Cover Design**: Precision split-layout for any academic scheme:
+  - Top half (50.4%): Deep maroon (`#640000`) or custom color theme banner featuring the authentic white **"അഴിമതി മയം"** (Azhumathimayam) wordmark and letter-spaced scheme headers.
+  - Bottom half (49.6%): Warm ivory/cream (`#F7F4EF`) section with bold serif subject titles, structured course tags, and a rounded pill link button.
+- **🎨 Brand Color Theme Selector**: Choose between Azhumathimayam Maroon, Royal Navy, Imperial Emerald, Obsidian Slate, Crimson Ruby, or pick any custom color.
+- **🛡️ Custom Watermarking (Under Text)**: Watermarks (custom text or image/stamp) are rendered strictly *behind* notes (`overlay=False`), keeping formulas, diagrams, and text 100% sharp and readable.
 - **Interactive PDF Links**: Embeds native clickable links inside the PDF for `azhumathimayam.invytra.in`, phone calls (`tel:`), and emails (`mailto:`).
 - **⚡ Smart Auto-Clean**: One-click intelligence that automatically identifies old branded covers, promotional/contact pages, QR codes, and watermarks for removal.
 - **100% Reliable Batch Downloads**: Direct single-click PDF downloads and instant **Download All as ZIP** for multi-document batches.
 - **Deterministic & Private**: 100% local processing. No cloud telemetry, no remote model calls, and zero data leakage. Original uploaded PDFs are never overwritten.
-- **Gentle Watermarking**: Optional subtle, elegant background watermark layer on retained study pages that protects notes without obstructing math formulas, circuit diagrams, or code.
 
 ---
 

@@ -85,7 +85,7 @@ function goStep(n) {
 function blankDefaults() {
   return {
     institution: '',
-    scheme: 'KTU 2024 SCHEME',
+    scheme: '2024 SCHEME',
     category: 'LAB EXAM NOTES',
     website: 'azhumathimayam.invytra.in',
     phone: '8606159002',
@@ -98,7 +98,7 @@ function blankDefaults() {
     cat_color: '#8C1D1D',
     watermark_color: '#B89494',
     watermark_text: 'AZHUMATHIMAYAM',
-    watermark_subtext: 'KTU 2024 SCHEME NOTES',
+    watermark_subtext: 'STUDY NOTES',
     watermark_type: 'text'
   };
 }
@@ -267,7 +267,7 @@ function initConfigs() {
       course_code: s.course_code || '',
       module: s.module || '',
       institution: s.institution || '',
-      scheme: s.scheme || 'KTU 2024 SCHEME',
+      scheme: s.scheme || '2024 SCHEME',
       category: s.category || 'LAB EXAM NOTES',
       tags: s.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result'
     };
@@ -302,7 +302,7 @@ function initConfigs() {
 }
 
 function inputHTML(key, label, val, cls = '') {
-  return `<div class="field ${cls}"><label>${esc(label)}</label><input data-field="${esc(key)}" value="${esc(val)}" placeholder="${key === 'title' ? 'e.g. Data Structures Lab Exam' : key === 'scheme' ? 'KTU 2024 SCHEME' : key === 'website' ? 'azhumathimayam.invytra.in' : ''}"></div>`;
+  return `<div class="field ${cls}"><label>${esc(label)}</label><input data-field="${esc(key)}" value="${esc(val)}" placeholder="${key === 'title' ? 'e.g. Data Structures Lab Exam' : key === 'scheme' ? 'e.g. 2024 SCHEME, KTU, CALICUT' : key === 'website' ? 'azhumathimayam.invytra.in' : ''}"></div>`;
 }
 
 function renderReview(resp) {
@@ -598,7 +598,7 @@ function docHTML(d) {
             <div class="cover-caption">Updates instantly as you edit</div>
             <div class="cover" data-cover="${d.id}">
               <div class="cover-top">
-                <div class="cover-scheme">KTU 2024 SCHEME</div>
+                <div class="cover-scheme">${esc((f.scheme || '2024 SCHEME').toUpperCase())}</div>
                 <img class="cover-logo" src="${state.logoUrl}" alt="Azhumathimayam">
                 <div class="cover-logo-fallback hidden">അഴിമതി മയം</div>
               </div>
@@ -639,7 +639,7 @@ function syncCover(id) {
   let box = document.querySelector(`[data-cover="${id}"]`);
   if (!box) return;
 
-  box.querySelector('.cover-scheme').textContent = (f.scheme || 'KTU 2024 SCHEME').toUpperCase();
+  box.querySelector('.cover-scheme').textContent = (f.scheme || '2024 SCHEME').toUpperCase();
   box.querySelector('.cover-cat').textContent = (f.category || 'LAB EXAM NOTES').toUpperCase();
   box.querySelector('.cover-title').textContent = f.title || 'Data Structures Lab Exam';
 
@@ -781,14 +781,14 @@ $('#autoCleanBtn').onclick = () => {
     const s = d.suggestions || {};
     if (!c.fields.title && s.title) c.fields.title = s.title;
     if (!c.fields.course_code && s.course_code) c.fields.course_code = s.course_code;
-    if (!c.fields.scheme) c.fields.scheme = s.scheme || 'KTU 2024 SCHEME';
+    if (!c.fields.scheme) c.fields.scheme = s.scheme || '2024 SCHEME';
     if (!c.fields.category) c.fields.category = s.category || 'LAB EXAM NOTES';
     if (!c.fields.tags) c.fields.tags = s.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
     c.remove_brand_links = true;
   });
 
   renderDocs();
-  toast(`⚡ Smart Auto-Clean: marked ${promoCount} promo page(s) and applied KTU settings.`);
+  toast(`⚡ Smart Auto-Clean: marked ${promoCount} promo page(s) and applied recommended defaults.`);
 };
 
 function paintProgress(data) {
@@ -815,7 +815,7 @@ function runStitchAnimation(doc, config, processPromise) {
   const f = (config && config.fields) || {};
   const fn = doc ? doc.filename : 'Document.pdf';
   const title = f.title || doc?.suggestions?.title || fn.replace(/\.[^/.]+$/, '');
-  const scheme = f.scheme || 'KTU 2024 SCHEME';
+  const scheme = f.scheme || '2024 SCHEME';
   const cat = f.category || 'LAB EXAM NOTES';
   const tags = f.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
   const contact = f.phone ? `Contact • ${f.phone}` : 'Contact • 8606159002';
@@ -918,7 +918,7 @@ function runStitchAnimation(doc, config, processPromise) {
       try {
         // --- STEP 1: COVER SYNTHESIS (Page 1) ---
         stepIndicator.textContent = 'SYNTHESIZING COVER (PAGE 1)';
-        pbarText.textContent = 'Synthesizing KTU Scheme Cover…';
+        pbarText.textContent = 'Synthesizing Scheme Cover…';
         pbarFill.style.width = '15%';
         pbarPct.textContent = '15%';
         logTerminal(`Page 1: Synthesizing Azhumathimayam Cover with Malayalam retina emblem`);
