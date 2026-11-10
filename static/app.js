@@ -3,9 +3,9 @@ const fields = [
   ['title', 'Subject or title'],
   ['course_code', 'Course code'],
   ['module', 'Module / unit'],
-  ['institution', 'University / institution'],
-  ['scheme', 'Scheme / academic year'],
-  ['category', 'Notes category'],
+  ['institution', 'University / institution name'],
+  ['scheme', 'Scheme / academic year (optional)'],
+  ['category', 'Cover label / category (optional)'],
   ['website', 'Website'],
   ['phone', 'Phone number'],
   ['email', 'Email'],
@@ -85,13 +85,13 @@ function goStep(n) {
 function blankDefaults() {
   return {
     institution: '',
-    scheme: '2024 SCHEME',
-    category: 'LAB EXAM NOTES',
+    scheme: '',
+    category: '',
     website: 'azhumathimayam.invytra.in',
     phone: '8606159002',
     email: '',
     subtitle: '',
-    tags: '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result',
+    tags: '',
     theme_color: '#640000',
     banner_color: '#640000',
     bg_color: '#F7F4EF',
@@ -267,9 +267,9 @@ function initConfigs() {
       course_code: s.course_code || '',
       module: s.module || '',
       institution: s.institution || '',
-      scheme: s.scheme || '2024 SCHEME',
-      category: s.category || 'LAB EXAM NOTES',
-      tags: s.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result'
+      scheme: s.scheme || '',
+      category: s.category || '',
+      tags: s.tags || ''
     };
     
     Object.keys(m).forEach(k => {
@@ -302,7 +302,15 @@ function initConfigs() {
 }
 
 function inputHTML(key, label, val, cls = '') {
-  return `<div class="field ${cls}"><label>${esc(label)}</label><input data-field="${esc(key)}" value="${esc(val)}" placeholder="${key === 'title' ? 'e.g. Data Structures Lab Exam' : key === 'scheme' ? 'e.g. 2024 SCHEME, KTU, CALICUT' : key === 'website' ? 'azhumathimayam.invytra.in' : ''}"></div>`;
+  const placeholders = {
+    title: 'e.g. Operating Systems, Lab Record, Study Notes',
+    institution: 'e.g. University of Kerala',
+    scheme: 'Optional — leave blank to hide',
+    category: 'e.g. LAB EXAM NOTES, STUDY NOTES, QUESTION BANK',
+    tags: 'Optional cover details, separated by dots',
+    website: 'azhumathimayam.invytra.in'
+  };
+  return `<div class="field ${cls}"><label>${esc(label)}</label><input data-field="${esc(key)}" value="${esc(val)}" placeholder="${esc(placeholders[key] || '')}"></div>`;
 }
 
 function renderReview(resp) {
@@ -598,13 +606,13 @@ function docHTML(d) {
             <div class="cover-caption">Updates instantly as you edit</div>
             <div class="cover" data-cover="${d.id}">
               <div class="cover-top">
-                <div class="cover-scheme">${esc((f.scheme || '2024 SCHEME').toUpperCase())}</div>
+                <div class="cover-scheme">${esc((f.scheme || '').toUpperCase())}</div>
                 <img class="cover-logo" src="${state.logoUrl}" alt="Azhumathimayam">
                 <div class="cover-logo-fallback hidden">അഴിമതി മയം</div>
               </div>
               <div class="cover-bottom">
-                <div class="cover-cat">LAB EXAM NOTES</div>
-                <div class="cover-title">Data Structures Lab Exam</div>
+                <div class="cover-cat"></div>
+                <div class="cover-title">Study Notes</div>
                 <div class="cover-sub"></div>
                 <div class="cover-divider"></div>
                 <div class="cover-pill-btn">
@@ -612,7 +620,7 @@ function docHTML(d) {
                 </div>
                 <div class="cover-contact">Contact • 8606159002</div>
                 <div class="cover-brand">I N V Y T R A</div>
-                <div class="cover-tags">12 Programs • Aim • Algorithm • C Program • Sample I/O • Result</div>
+                <div class="cover-tags"></div>
               </div>
             </div>
           </div>
@@ -639,9 +647,9 @@ function syncCover(id) {
   let box = document.querySelector(`[data-cover="${id}"]`);
   if (!box) return;
 
-  box.querySelector('.cover-scheme').textContent = (f.scheme || '2024 SCHEME').toUpperCase();
-  box.querySelector('.cover-cat').textContent = (f.category || 'LAB EXAM NOTES').toUpperCase();
-  box.querySelector('.cover-title').textContent = f.title || 'Data Structures Lab Exam';
+  box.querySelector('.cover-scheme').textContent = (f.scheme || '').toUpperCase();
+  box.querySelector('.cover-cat').textContent = (f.category || '').toUpperCase();
+  box.querySelector('.cover-title').textContent = f.title || 'Study Notes';
 
   let subParts = [f.subtitle, f.institution, [f.course_code, f.module].filter(Boolean).join(' · ')].filter(Boolean);
   let subEl = box.querySelector('.cover-sub');
@@ -664,7 +672,7 @@ function syncCover(id) {
 
   let tagsEl = box.querySelector('.cover-tags');
   if (tagsEl) {
-    tagsEl.textContent = f.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
+    tagsEl.textContent = f.tags || '';
   }
 
   // Sync theme palette colors to live cover
@@ -781,9 +789,9 @@ $('#autoCleanBtn').onclick = () => {
     const s = d.suggestions || {};
     if (!c.fields.title && s.title) c.fields.title = s.title;
     if (!c.fields.course_code && s.course_code) c.fields.course_code = s.course_code;
-    if (!c.fields.scheme) c.fields.scheme = s.scheme || '2024 SCHEME';
-    if (!c.fields.category) c.fields.category = s.category || 'LAB EXAM NOTES';
-    if (!c.fields.tags) c.fields.tags = s.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
+    if (!c.fields.scheme && s.scheme) c.fields.scheme = s.scheme;
+    if (!c.fields.category && s.category) c.fields.category = s.category;
+    if (!c.fields.tags && s.tags) c.fields.tags = s.tags;
     c.remove_brand_links = true;
   });
 
@@ -814,10 +822,11 @@ function runStitchAnimation(doc, config, processPromise) {
   // Personalize the studio
   const f = (config && config.fields) || {};
   const fn = doc ? doc.filename : 'Document.pdf';
-  const title = f.title || doc?.suggestions?.title || fn.replace(/\.[^/.]+$/, '');
-  const scheme = f.scheme || '2024 SCHEME';
-  const cat = f.category || 'LAB EXAM NOTES';
-  const tags = f.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
+  const title = f.title || doc?.suggestions?.title || fn.replace(/\.[^/.]+$/, '') || 'Study Notes';
+  const scheme = f.scheme || '';
+  const cat = f.category || '';
+  const tags = f.tags || '';
+  const coverDetails = [f.subtitle, f.institution, [f.course_code, f.module].filter(Boolean).join(' · ')].filter(Boolean);
   const contact = f.phone ? `Contact • ${f.phone}` : 'Contact • 8606159002';
   const banner = f.banner_color || f.theme_color || '#640000';
   const catColor = f.cat_color || '#8C1D1D';
@@ -829,6 +838,9 @@ function runStitchAnimation(doc, config, processPromise) {
   $('#stitchCoverCat').textContent = cat;
   $('#stitchCoverCat').style.color = catColor;
   $('#stitchCoverTitle').textContent = title;
+  const stitchDetails = $('#stitchCoverSub');
+  stitchDetails.textContent = coverDetails.join(' — ');
+  stitchDetails.style.display = coverDetails.length ? 'block' : 'none';
   $('#stitchCoverTags').textContent = tags;
   $('#stitchCoverContact').textContent = contact;
   $('#stitchCoverContact').style.color = banner;
@@ -870,7 +882,7 @@ function runStitchAnimation(doc, config, processPromise) {
   };
 
   logTerminal(`Initialized PyMuPDF vector AST pipeline for: ${fn}`, 'init');
-  logTerminal(`Document metadata checked. Scheme: ${scheme}`, 'init');
+  logTerminal(`Document metadata checked. Scheme: ${scheme || 'not set'}`, 'init');
 
   // Visual Elements
   const coverView = $('#stitchCoverView');

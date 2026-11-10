@@ -109,13 +109,13 @@ FIELDS = [
 ]
 DEFAULTS = {
     "institution": "",
-    "scheme": "2024 SCHEME",
-    "category": "LAB EXAM NOTES",
+    "scheme": "",
+    "category": "",
     "website": "azhumathimayam.invytra.in",
     "phone": "8606159002",
     "email": "",
     "subtitle": "",
-    "tags": "12 Programs • Aim • Algorithm • C Program • Sample I/O • Result",
+    "tags": "",
     "theme_color": "#640000",
     "banner_color": "#640000",
     "bg_color": "#F7F4EF",
@@ -280,7 +280,7 @@ def extract_suggestions(doc: fitz.Document, page_summaries: list[dict[str, Any]]
             title = " ".join(w.capitalize() for w in stem_clean.split())
         else:
             candidates = [p["heading"] for p in page_summaries[:3] if p.get("heading") and len(p["heading"]) < 110]
-            title = candidates[0] if candidates else "Data Structures Lab Exam"
+            title = candidates[0] if candidates else "Study Notes"
 
     course = ""
     m = re.search(r"\b([A-Z]{2,4}\s*[-/]?\s*[0-9]{3})\b", text + " " + filename)
@@ -297,20 +297,14 @@ def extract_suggestions(doc: fitz.Document, page_summaries: list[dict[str, Any]]
     if inst:
         institution = re.sub(r"\s+", " ", inst.group(0)).strip()[:90]
 
-    scheme = "2024 SCHEME"
+    scheme = ""
     sm = re.search(r"\b(?:[A-Z]{2,8}\s*)?20\d{2}\s*(?:scheme|scheme year|syllabus)\b", text + " " + filename, re.I)
     if sm:
         scheme = re.sub(r"\s+", " ", sm.group(0)).upper()
 
-    category = "LAB EXAM NOTES"
-    if any(k in low_text[:800] or k in filename.lower() for k in ["lab", "practical", "exam", "viva", "program", "experiment"]):
-        category = "LAB EXAM NOTES"
-    elif any(k in low_text[:800] or k in filename.lower() for k in ["question", "pyq", "solved"]):
-        category = "QUESTION BANK & SOLUTIONS"
-    elif any(k in low_text[:800] or k in filename.lower() for k in ["lecture", "module", "notes"]):
-        category = "STUDY NOTES"
-
-    tags = "12 Programs • Aim • Algorithm • C Program • Sample I/O • Result"
+    # Category is deliberately left blank: users choose the cover label that fits.
+    category = ""
+    tags = ""
     pm = re.search(r"\b(\d{1,2}\s*Programs?)\b", text, re.I)
     if pm:
         tags = f"{pm.group(1)} • Aim • Algorithm • C Program • Sample I/O • Result"
@@ -590,9 +584,10 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
             page.insert_text((x, baseline), char, fontfile=font_bold, fontsize=size, color=color)
             x += font.text_length(char, fontsize=size) + tracking
 
-    # 1. Scheme Text at Top (e.g. 2024 SCHEME)
-    scheme = (fields.get("scheme") or "2024 SCHEME").strip()
-    tracked(scheme, 86, 8.5, 3.2, (1, 1, 1), 460)
+    # Optional academic scheme label; leave the top edge clean unless supplied.
+    scheme = (fields.get("scheme") or "").strip()
+    if scheme:
+        tracked(scheme, 86, 8.5, 3.2, (1, 1, 1), 460)
 
     # 2. Ultra-Sharp Authentic Malayalam Wordmark Logo in Center of Maroon Banner
     logo_file = logo_path if (logo_path and logo_path.exists()) else (BASE / "static" / "azhumathimayam-logo.png")
@@ -611,12 +606,13 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     else:
         centered("അഴിമതി മയം", 252, 36, font_bold, (1, 1, 1))
 
-    # 3. Category (e.g. LAB EXAM NOTES)
-    category = (fields.get("category") or "LAB EXAM NOTES").strip().upper()
-    tracked(category, 480, 8.5, 2.8, cat_color, 460)
+    # Optional cover label/category, editable per document or in batch defaults.
+    category = (fields.get("category") or "").strip().upper()
+    if category:
+        tracked(category, 480, 8.5, 2.8, cat_color, 460)
 
     # 4. Subject / Title (e.g. Data Structures \n Lab Exam)
-    title = (fields.get("title") or "Data Structures Lab Exam").strip()
+    title = (fields.get("title") or "Study Notes").strip()
     # A clean sans face keeps long course titles legible and matches the cover's
     # restrained, editorial look. Step the size down gently for longer titles.
     title_size = 26.0 if len(title) <= 30 else 23.5 if len(title) <= 55 else 20.0
@@ -625,8 +621,9 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     # Keep supporting details separate from the title so course metadata is not
     # silently lost, while giving the title block enough breathing room.
     course_bits = [x for x in (fields.get("course_code", "").strip(), fields.get("module", "").strip()) if x]
-    subtitle = fields.get("subtitle", "").strip() or fields.get("institution", "").strip()
-    extra_details = [x for x in (subtitle, " · ".join(course_bits) if course_bits else "") if x]
+    subtitle = fields.get("subtitle", "").strip()
+    institution = fields.get("institution", "").strip()
+    extra_details = list(dict.fromkeys(x for x in (subtitle, institution, " · ".join(course_bits) if course_bits else "") if x))
     for detail in extra_details[:2]:
         y = centered(detail, y + 2, 9.5, font_sans, (0.35, 0.35, 0.35), 460, max_lines=1)
 
@@ -672,8 +669,8 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     # 7. Brand Name (I N V Y T R A)
     tracked("I N V Y T R A", 780.0, 7.5, 4.0, banner_color, 220)
 
-    # 8. Bottom Summary Line / Tags (e.g. 12 Programs • Aim • Algorithm • C Program • Sample I/O • Result)
-    tags = (fields.get("tags") or "12 Programs • Aim • Algorithm • C Program • Sample I/O • Result").strip()
+    # 8. Optional bottom summary / tags
+    tags = (fields.get("tags") or "").strip()
     if tags:
         centered(tags, 816.0, 7.5, font_sans, (0.48, 0.45, 0.44), 520, max_lines=1)
 
@@ -906,7 +903,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         output.set_metadata({
             "title": fields.get("title") or "Azhumathimayam Notes",
             "author": "Azhumathimayam · INVYTRA",
-            "subject": fields.get("category") or "LAB EXAM NOTES",
+            "subject": fields.get("category") or "Study Notes",
             "creator": "Azhumathimayam Note Maker"
         })
         output.save(out_path, garbage=3, deflate=True)
