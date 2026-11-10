@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import hashlib
+import html
 import os
 import re
 import shutil
@@ -138,6 +139,42 @@ def hex_to_rgb(hex_str: str | None, default: tuple[float, float, float]) -> tupl
     except Exception:
         pass
     return default
+
+
+def render_text_watermark_png(width: float, height: float, label: str, sub_label: str,
+                              color: tuple[float, float, float], font_file: Path) -> bytes:
+    """Shape Malayalam with MuPDF's HTML text engine, then rotate the whole mark as one image."""
+    from PIL import Image
+
+    scale = 2
+    staging = fitz.open()
+    try:
+        page = staging.new_page(width=width, height=height)
+        page.insert_font(fontname="NotoML", fontfile=str(font_file))
+        rgb = "#" + "".join(f"{round(max(0, min(1, c)) * 255):02X}" for c in color)
+        markup = (
+            '<div class="watermark">'
+            f'<div class="main">{html.escape(label)}</div>'
+            + (f'<div class="sub">{html.escape(sub_label)}</div>' if sub_label else "")
+            + "</div>"
+        )
+        css = (
+            f".watermark {{ color: {rgb}; text-align: center; }}"
+            ".main { font-family: NotoML; font-size: 36pt; line-height: 1.12; white-space: nowrap; }"
+            ".sub { font-family: sans-serif; font-size: 13pt; letter-spacing: 2pt; margin-top: 4pt; white-space: nowrap; }"
+        )
+        text_box = fitz.Rect(width * 0.08, height / 2 - 48, width * 0.92, height / 2 + 58)
+        page.insert_htmlbox(text_box, markup, css=css, scale_low=0.55)
+        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=True)
+        layer = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+        # Keep the watermark visible but light enough not to compete with the notes.
+        layer.putalpha(layer.getchannel("A").point(lambda alpha: round(alpha * 0.58)))
+        layer = layer.rotate(-35, resample=Image.Resampling.BICUBIC, expand=False)
+        output = io.BytesIO()
+        layer.save(output, format="PNG", optimize=True)
+        return output.getvalue()
+    finally:
+        staging.close()
 
 
 def prune_expired_jobs(max_age: int = 24 * 60 * 60) -> None:
@@ -695,6 +732,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         removal_report = []
         image_removal_report = []
         deleted_output_xrefs = set()
+        watermark_image_cache: dict[tuple, tuple[bytes, int | None]] = {}
         
         for src_idx, out_idx in retained_map:
             page = output[out_idx]
@@ -813,91 +851,27 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                         except Exception:
                             pass
 
-                # Option B: Custom Text Watermark (drawn UNDER text)
+                # Option B: Shape text with the Malayalam font, then rotate the complete
+                # centered lockup as one transparent watermark image. This avoids
+                # MuPDF insert_text limitations with Malayalam conjuncts and marks.
                 else:
-                    label = (fields.get("watermark_text") or "അഴിമതി മയം").strip()
-                    sub_label = (fields.get("watermark_subtext") or "*by invytra").strip()
-
+                    label = (fields.get("watermark_text") or "അഴിമതി മയം").strip()[:100]
+                    sub_label = (fields.get("watermark_subtext") or "*by invytra").strip()[:100]
                     try:
                         font_file = BASE / "static" / "NotoSansMalayalam.ttf"
-                        has_malayalam = any("\u0d00" <= ch <= "\u0d7f" for ch in (label + " " + sub_label))
-                        use_fontfile = font_file.exists() and (has_malayalam or not label.isascii())
-
-                        font_size = min(44, max(22, rect.width * (0.64 / max(1, len(label) * 0.10))))
-                        if use_fontfile:
-                            try:
-                                font_obj = fitz.Font(fontfile=str(font_file))
-                                tw = font_obj.text_length(label, fontsize=font_size)
-                            except Exception:
-                                tw = len(label) * font_size * 0.62
+                        cache_key = (
+                            round(rect.width, 2), round(rect.height, 2), label, sub_label,
+                            tuple(round(channel, 4) for channel in wm_tint)
+                        )
+                        cached = watermark_image_cache.get(cache_key)
+                        if cached and cached[1]:
+                            page.insert_image(rect, xref=cached[1], overlay=False)
                         else:
-                            try:
-                                tw = fitz.Font("hebo").text_length(label, fontsize=font_size)
-                            except Exception:
-                                tw = len(label) * font_size * 0.62
-
-                        start_x = center_x - (tw / 2) * 0.82
-                        start_y = center_y + (tw / 2) * 0.57
-                        pt = fitz.Point(start_x, start_y)
-                        rot_mat = fitz.Matrix(-35)
-
-                        # overlay=False ensures watermark text is placed UNDER/BEHIND the text!
-                        if use_fontfile:
-                            try:
-                                page.insert_text(
-                                    pt, label,
-                                    fontfile=str(font_file), fontsize=font_size,
-                                    color=wm_tint, morph=(pt, rot_mat),
-                                    overlay=False
-                                )
-                            except Exception:
-                                page.insert_text(
-                                    pt, label,
-                                    fontfile=str(font_file), fontsize=font_size,
-                                    color=wm_tint,
-                                    overlay=False
-                                )
-                        else:
-                            try:
-                                page.insert_text(
-                                    pt, label,
-                                    fontname="hebo", fontsize=font_size,
-                                    color=wm_tint, morph=(pt, rot_mat),
-                                    overlay=False
-                                )
-                            except Exception:
-                                page.insert_text(
-                                    pt, label,
-                                    fontname="hebo", fontsize=font_size,
-                                    color=wm_tint,
-                                    overlay=False
-                                )
-
-                        if sub_label:
-                            sub_size = max(10.0, font_size * 0.40)
-                            sub_pt = fitz.Point(start_x + 12, start_y + 20)
-                            if use_fontfile:
-                                try:
-                                    page.insert_text(
-                                        sub_pt, sub_label,
-                                        fontfile=str(font_file), fontsize=sub_size,
-                                        color=wm_tint, morph=(sub_pt, rot_mat),
-                                        overlay=False
-                                    )
-                                except Exception:
-                                    page.insert_text(
-                                        sub_pt, sub_label,
-                                        fontfile=str(font_file), fontsize=sub_size,
-                                        color=wm_tint, morph=(sub_pt, rot_mat),
-                                        overlay=False
-                                    )
-                            else:
-                                page.insert_text(
-                                    sub_pt, sub_label,
-                                    fontname="hebo", fontsize=sub_size,
-                                    color=wm_tint, morph=(sub_pt, rot_mat),
-                                    overlay=False
-                                )
+                            png = cached[0] if cached else render_text_watermark_png(
+                                rect.width, rect.height, label, sub_label, wm_tint, font_file
+                            )
+                            image_xref = page.insert_image(rect, stream=png, overlay=False)
+                            watermark_image_cache[cache_key] = (png, image_xref)
                     except Exception:
                         try:
                             logo = BASE / "static" / "azhumathimayam-logo.png"
