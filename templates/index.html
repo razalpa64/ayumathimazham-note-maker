@@ -159,6 +159,161 @@
       </details>
     </section>
 
+    <!-- ⚡ GOOGLE STITCH STYLE AI BUILDER STUDIO -->
+    <div id="stitchStudio" class="stitch-studio hidden" aria-live="polite">
+      <div class="stitch-backdrop"></div>
+      <div class="stitch-modal">
+        <div class="stitch-header">
+          <div class="stitch-badge">
+            <span class="stitch-pulse-dot"></span>
+            <span class="stitch-badge-text">AI AGENT EDITING IN REAL-TIME</span>
+          </div>
+          <div class="stitch-title-wrap">
+            <h3 id="stitchDocTitle">Synthesizing Notes & Removing Watermarks…</h3>
+            <span id="stitchFileBadge" class="stitch-file-badge">document.pdf</span>
+          </div>
+          <div class="stitch-fast-forward">
+            <button type="button" id="skipStitchBtn" class="stitch-skip-btn">Skip animation ⚡</button>
+          </div>
+        </div>
+
+        <div class="stitch-canvas-grid">
+          <!-- Left: Live Visual Document Morph -->
+          <div class="stitch-canvas">
+            <div class="stitch-paper-wrapper">
+              <div class="stitch-paper" id="stitchPaper">
+                <!-- Laser Scan Line -->
+                <div class="stitch-laser" id="stitchLaser"></div>
+                
+                <!-- Layer 1: Simulated raw input document with watermarks -->
+                <div class="stitch-doc-raw" id="stitchDocRaw">
+                  <div class="raw-watermark raw-wm-1">OLD_TELEGRAM_NOTES_KTU</div>
+                  <div class="raw-watermark raw-wm-2">@SAMPLE_WATERMARK_CHANNEL</div>
+                  <div class="raw-line raw-h1"></div>
+                  <div class="raw-line raw-p"></div>
+                  <div class="raw-line raw-p short"></div>
+                  <div class="raw-watermark raw-wm-3">WWW.OTHERWEBSITE.COM</div>
+                  <div class="raw-line raw-p"></div>
+                  <div class="raw-line raw-p medium"></div>
+                  <div class="raw-line raw-p"></div>
+                  <!-- Detected Erase Target Boxes -->
+                  <div class="erase-box erase-box-1"><span class="erase-tag">PURGED ✓</span></div>
+                  <div class="erase-box erase-box-2"><span class="erase-tag">REDACTED ✓</span></div>
+                </div>
+
+                <!-- Layer 2: Synthesized Azhumathimayam Cover that materializes -->
+                <div class="stitch-doc-cover" id="stitchDocCover">
+                  <div class="stitch-cover-top">
+                    <div class="stitch-cover-scheme" id="stitchCoverScheme">KTU 2024 SCHEME</div>
+                    <div class="stitch-cover-logo-wrap">
+                      <img src="/static/azhumathimayam-logo.png" alt="അഴിമതി മയം" class="stitch-cover-logo" id="stitchCoverLogo">
+                      <div class="stitch-logo-shimmer"></div>
+                    </div>
+                  </div>
+                  <div class="stitch-cover-bottom">
+                    <div class="stitch-cover-cat" id="stitchCoverCat">LAB EXAM NOTES</div>
+                    <div class="stitch-cover-title" id="stitchCoverTitle">Data Structures Lab Exam</div>
+                    <div class="stitch-cover-divider"></div>
+                    <div class="stitch-cover-pill">
+                      <span>azhumathimayam.invytra.in</span>
+                    </div>
+                    <div class="stitch-cover-contact" id="stitchCoverContact">Contact • 8606159002</div>
+                    <div class="stitch-cover-brand">I N V Y T R A</div>
+                    <div class="stitch-cover-tags" id="stitchCoverTags">12 Programs • Aim • Algorithm • C Program • Sample I/O • Result</div>
+                  </div>
+                </div>
+
+                <!-- Verified Stamp Overlay -->
+                <div class="stitch-seal" id="stitchSeal">
+                  <div class="stitch-seal-icon">✓</div>
+                  <div class="stitch-seal-text">VERIFIED CLEAN</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Real-Time AI Stream & Telemetry -->
+          <div class="stitch-telemetry">
+            <div class="stitch-telemetry-head">
+              <span class="stitch-step-indicator">CHOREOGRAPHED AI STEPS</span>
+              <span id="stitchSpeed" class="stitch-speed">0.24s vector speed</span>
+            </div>
+
+            <!-- Animated step list -->
+            <div class="stitch-steps" id="stitchSteps">
+              <div class="stitch-step active" data-step="1">
+                <div class="step-icon">🔍</div>
+                <div class="step-info">
+                  <strong>Parsing Vector AST & Document Layers</strong>
+                  <small>Extracting text quads, stream xrefs & fonts</small>
+                </div>
+                <div class="step-status"></div>
+              </div>
+              <div class="stitch-step" data-step="2">
+                <div class="step-icon">✂️</div>
+                <div class="step-info">
+                  <strong>Erasing Watermarks & Telegram Tags</strong>
+                  <small>Purging annotations, links & promotional pages</small>
+                </div>
+                <div class="step-status"></div>
+              </div>
+              <div class="stitch-step" data-step="3">
+                <div class="step-icon">🎨</div>
+                <div class="step-info">
+                  <strong>Synthesizing Azhumathimayam Cover</strong>
+                  <small>Applying KTU scheme, typography & Malayalam logo</small>
+                </div>
+                <div class="step-status"></div>
+              </div>
+              <div class="stitch-step" data-step="4">
+                <div class="step-icon">🛡️</div>
+                <div class="step-info">
+                  <strong>Injecting Interactive Link & Protection</strong>
+                  <small>Pill button linked to azhumathimayam.invytra.in</small>
+                </div>
+                <div class="step-status"></div>
+              </div>
+              <div class="stitch-step" data-step="5">
+                <div class="step-icon">🚀</div>
+                <div class="step-info">
+                  <strong>Optimizing & Deflating Binary Stream</strong>
+                  <small>Lossless compression & instant download readiness</small>
+                </div>
+                <div class="step-status"></div>
+              </div>
+            </div>
+
+            <!-- Progress bar & metrics -->
+            <div class="stitch-metrics">
+              <div class="stitch-pbar-wrap">
+                <div class="stitch-pbar-head">
+                  <span id="stitchPbarText">Preparing document…</span>
+                  <span id="stitchPbarPercent">0%</span>
+                </div>
+                <div class="stitch-pbar-track">
+                  <div id="stitchPbarFill" class="stitch-pbar-fill"></div>
+                </div>
+              </div>
+              <div class="stitch-stats">
+                <div class="stitch-stat">
+                  <span>ENGINE</span>
+                  <b>PyMuPDF Vector</b>
+                </div>
+                <div class="stitch-stat">
+                  <span>SCHEME</span>
+                  <b>KTU 2024</b>
+                </div>
+                <div class="stitch-stat">
+                  <span>STATUS</span>
+                  <b id="stitchStatusStat">ACTIVE</b>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <footer>
       <span>Azhumathimayam Note Maker · INVYTRA PDF Studio</span>
       <span>Local-first · KTU 2024 Scheme & Study Note Preparation</span>

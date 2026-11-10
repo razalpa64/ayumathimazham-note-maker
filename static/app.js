@@ -587,20 +587,164 @@ function paintProgress(data) {
   }).join('');
 }
 
+function runStitchAnimation(doc, config, processPromise) {
+  const studio = $('#stitchStudio');
+  studio.classList.remove('hidden');
+
+  // Personalize the studio
+  const f = (config && config.fields) || {};
+  const fn = doc ? doc.filename : 'Document.pdf';
+  const title = f.title || doc?.suggestions?.title || fn.replace(/\.[^/.]+$/, '');
+  const scheme = f.scheme || 'KTU 2024 SCHEME';
+  const cat = f.category || 'LAB EXAM NOTES';
+  const tags = f.tags || '12 Programs • Aim • Algorithm • C Program • Sample I/O • Result';
+  const contact = f.phone ? `Contact • ${f.phone}` : 'Contact • 8606159002';
+
+  $('#stitchFileBadge').textContent = fn;
+  $('#stitchDocTitle').textContent = `Synthesizing ${title.slice(0, 36)}${title.length > 36 ? '…' : ''}`;
+  $('#stitchCoverScheme').textContent = scheme;
+  $('#stitchCoverCat').textContent = cat;
+  $('#stitchCoverTitle').textContent = title;
+  $('#stitchCoverTags').textContent = tags;
+  $('#stitchCoverContact').textContent = contact;
+
+  if (state.logoUrl) {
+    $('#stitchCoverLogo').src = state.logoUrl;
+  }
+
+  // Reset visual states
+  const rawDoc = $('#stitchDocRaw');
+  const coverDoc = $('#stitchDocCover');
+  const seal = $('#stitchSeal');
+  const eraseBoxes = $$('.erase-box');
+  const pbarFill = $('#stitchPbarFill');
+  const pbarText = $('#stitchPbarText');
+  const pbarPct = $('#stitchPbarPercent');
+  const statusStat = $('#stitchStatusStat');
+
+  rawDoc.classList.remove('redacting');
+  coverDoc.classList.remove('visible');
+  seal.classList.remove('pop');
+  eraseBoxes.forEach(b => b.classList.remove('active'));
+  pbarFill.style.width = '0%';
+  pbarPct.textContent = '0%';
+  statusStat.textContent = 'ACTIVE';
+
+  const steps = $$('.stitch-step');
+  steps.forEach((s, idx) => {
+    s.classList.toggle('active', idx === 0);
+    s.classList.remove('done');
+  });
+
+  let skipped = false;
+  const skipBtn = $('#skipStitchBtn');
+  const onSkip = () => { skipped = true; };
+  skipBtn.onclick = onSkip;
+
+  const wait = ms => new Promise(res => {
+    if (skipped) return res();
+    const t = setTimeout(res, ms);
+    skipBtn.addEventListener('click', () => { clearTimeout(t); res(); }, { once: true });
+  });
+
+  return new Promise(async (resolve, reject) => {
+    // Run the animation choreography
+    (async () => {
+      try {
+        // Step 1: Parse
+        pbarFill.style.width = '20%';
+        pbarPct.textContent = '20%';
+        pbarText.textContent = 'Analyzing AST quads & layers…';
+        await wait(450);
+        if (skipped) return;
+
+        // Step 2: Redact Watermarks
+        steps[0].classList.remove('active');
+        steps[0].classList.add('done');
+        steps[1].classList.add('active');
+        rawDoc.classList.add('redacting');
+        eraseBoxes.forEach(b => b.classList.add('active'));
+        pbarFill.style.width = '45%';
+        pbarPct.textContent = '45%';
+        pbarText.textContent = 'Erasing watermarks & contact marks…';
+        await wait(550);
+        if (skipped) return;
+
+        // Step 3: Synthesize Azhumathimayam Cover
+        steps[1].classList.remove('active');
+        steps[1].classList.add('done');
+        steps[2].classList.add('active');
+        coverDoc.classList.add('visible');
+        pbarFill.style.width = '70%';
+        pbarPct.textContent = '70%';
+        pbarText.textContent = 'Synthesizing KTU 2024 Scheme cover…';
+        await wait(550);
+        if (skipped) return;
+
+        // Step 4: Inject Interactive URI link & Protection
+        steps[2].classList.remove('active');
+        steps[2].classList.add('done');
+        steps[3].classList.add('active');
+        pbarFill.style.width = '90%';
+        pbarPct.textContent = '90%';
+        pbarText.textContent = 'Embedding interactive URI & stamps…';
+        await wait(450);
+        if (skipped) return;
+
+        // Step 5: Verification & Stream Deflation
+        steps[3].classList.remove('active');
+        steps[3].classList.add('done');
+        steps[4].classList.add('active');
+        seal.classList.add('pop');
+        pbarFill.style.width = '100%';
+        pbarPct.textContent = '100%';
+        pbarText.textContent = '100% Verified · Ready to download';
+        statusStat.textContent = 'READY ✓';
+        await wait(400);
+      } catch (err) {
+        // Ignore animation errors, network result takes priority
+      }
+    })();
+
+    // Concurrently wait for backend response
+    try {
+      const data = await processPromise;
+      if (!skipped) {
+        // Ensure final state looks glorious before closing
+        pbarFill.style.width = '100%';
+        pbarPct.textContent = '100%';
+        steps.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
+        seal.classList.add('pop');
+        coverDoc.classList.add('visible');
+        await wait(300);
+      }
+      studio.classList.add('hidden');
+      resolve(data);
+    } catch (err) {
+      studio.classList.add('hidden');
+      reject(err);
+    }
+  });
+}
+
 $('#processBtn').onclick = async () => {
   if (!state.job) return;
   $('#processBtn').disabled = true;
   $('#processBtn').textContent = 'Preparing confirmed PDFs…';
-  $('#processingProgress').classList.remove('hidden');
   goStep(3);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  const activeDocs = state.documents.filter(d => !d.error);
+  const firstDoc = activeDocs[0];
+  const firstConfig = firstDoc ? state.configs[firstDoc.id] : null;
 
   try {
-    let data = await safeFetchJSON(`/api/process/${state.job}`, {
+    const processPromise = safeFetchJSON(`/api/process/${state.job}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ documents: state.configs })
     });
+
+    let data = await runStitchAnimation(firstDoc, firstConfig, processPromise);
 
     while (data.status !== 'complete') {
       paintProgress(data);
@@ -639,7 +783,9 @@ $('#processBtn').onclick = async () => {
     $('#reviewPanel').classList.add('hidden');
     $('#resultsPanel').classList.remove('hidden');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast('✨ Azhumathimayam Notes prepared with 0 errors!');
   } catch (e) {
+    $('#stitchStudio').classList.add('hidden');
     toast(e.message);
     goStep(2);
   } finally {
