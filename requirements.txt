@@ -1,0 +1,5 @@
+Flask>=3.0,<4
+PyMuPDF>=1.24,<3
+Pillow>=10,<12
+# Optional QR-code detection: opencv-python-headless and numpy
+# The app works without it; QR evidence will be unavailable.

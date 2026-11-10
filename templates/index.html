@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Azhumathimayam Note Maker — KTU Study & Lab Exam Studio</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#">
+    <span class="brand-mark">അ</span>
+    <span>AZHUMATHIMAYAM <small>NOTE MAKER · INVYTRA</small></span>
+  </a>
+  <div class="local-pill"><i></i> KTU 2024 Scheme &bull; Local-First</div>
+</header>
+<main class="shell">
+<section class="hero">
+  <div class="eyebrow">KTU EXAM & LAB NOTE STUDIO</div>
+  <h1>Smart Finish for<br><em>KTU Study Notes.</em></h1>
+  <p>Rebrand, clean watermarks, and generate pristine Azhumathimayam & Invytra covers with exact KTU 2024 Scheme styling. High-performance, local-first, zero privacy leakage.</p>
+  <div class="stepbar">
+    <div class="step active" data-step="1"><b>01</b><span>Upload</span></div>
+    <div class="step-line"></div>
+    <div class="step" data-step="2"><b>02</b><span>Review</span></div>
+    <div class="step-line"></div>
+    <div class="step" data-step="3"><b>03</b><span>Prepare</span></div>
+  </div>
+</section>
+
+<section id="uploadPanel" class="panel upload-panel">
+  <div class="panel-head">
+    <div>
+      <div class="eyebrow">STAGE 01 · ADD FILES</div>
+      <h2>Start with your PDFs</h2>
+      <p class="muted">Add up to 12 files. Each PDF can have its own title, course details, watermark, and custom cover.</p>
+    </div>
+    <div class="lock-note">⌑ &nbsp; 100% Private & Local</div>
+  </div>
+  <form id="uploadForm">
+    <label class="dropzone" id="dropzone">
+      <input id="pdfs" type="file" name="pdfs" accept="application/pdf,.pdf" multiple required>
+      <span class="upload-icon">↑</span>
+      <strong>Drop PDFs here, or <u>browse files</u></strong>
+      <small>PDF · up to 60 MB each · 12 files · 180 MB per batch</small>
+      <span id="chosenFiles" class="chosen-files"></span>
+    </label>
+    <div class="upload-extras">
+      <label class="file-option">
+        <span class="option-icon">▤</span>
+        <span><b>Batch metadata</b><small>Optional CSV or JSON, matched by filename</small></span>
+        <input id="metadata" type="file" accept=".csv,.json,application/json,text/csv">
+      </label>
+      <label class="file-option">
+        <span class="option-icon">✳</span>
+        <span><b>Logo artwork</b><small>Optional PNG/JPEG · defaults to Azhumathimayam</small></span>
+        <input id="logo" type="file" accept="image/png,image/jpeg,image/webp">
+      </label>
+      <label class="file-option">
+        <span class="option-icon">▧</span>
+        <span><b>Cover reference</b><small>Optional image guide · preview comparison</small></span>
+        <input id="coverReference" type="file" accept="image/png,image/jpeg,image/webp">
+      </label>
+    </div>
+    <button class="button primary" type="submit" id="analyzeBtn">Analyze PDFs <span>→</span></button>
+    <div id="uploadError" class="error-message" role="alert"></div>
+  </form>
+  <details class="privacy">
+    <summary>Privacy & local deterministic engine</summary>
+    <p>Files are analyzed strictly on this device. No cloud APIs, no external OCR, and no data tracking. The brain uses selectable PDF text, links, headings, vector structures, and deterministic rules. Your original files remain completely untouched.</p>
+  </details>
+</section>
+
+<section id="reviewPanel" class="hidden">
+  <div class="review-toolbar">
+    <div>
+      <div class="eyebrow">STAGE 02 · REVIEW EVERY FILE</div>
+      <h2>Fine-tune decisions & covers</h2>
+      <p class="muted">Check suggested titles, KTU scheme, and page removals. Use Smart Auto-Clean to prepare in one click.</p>
+    </div>
+    <div class="toolbar-actions">
+      <button class="button secondary" id="autoCleanBtn" title="Auto-select promo pages and apply recommended KTU defaults">⚡ Smart Auto-Clean</button>
+      <button class="button ghost" id="newBatch">＋ New batch</button>
+    </div>
+  </div>
+
+  <div id="globalDefaults" class="panel defaults-panel">
+    <div class="defaults-heading">
+      <div>
+        <div class="eyebrow">BATCH DEFAULTS</div>
+        <h3>Branding, Scheme & Contact</h3>
+        <p class="muted">Apply only where a document field is blank. Each PDF remains independently editable.</p>
+      </div>
+      <button id="applyDefaults" class="button secondary">Apply defaults to blanks</button>
+    </div>
+    <div class="field-grid defaults-grid"></div>
+  </div>
+
+  <div id="referenceNotice" class="notice hidden"></div>
+  <div id="metadataNotice" class="notice hidden"></div>
+  <div id="metadataMapping" class="metadata-mapping hidden"></div>
+  <div id="docs"></div>
+
+  <div id="processingProgress" class="panel processing-progress hidden">
+    <div class="progress-head">
+      <b id="progressLabel">Preparing PDFs…</b>
+      <span id="progressCount">0 / 0</span>
+    </div>
+    <div class="progress-track"><i id="progressFill"></i></div>
+    <div id="progressFiles" class="progress-files"></div>
+  </div>
+
+  <div class="review-footer">
+    <div class="safe-reminder">
+      <span>✓</span>
+      <span>Original files stay 100% untouched. Prepared PDFs get precision-crafted covers, watermark protection, and clean formatting.</span>
+    </div>
+    <button class="button primary" id="processBtn">Prepare confirmed PDFs <span>→</span></button>
+  </div>
+</section>
+
+<section id="resultsPanel" class="panel hidden">
+  <div class="panel-head">
+    <div>
+      <div class="eyebrow">STAGE 03 · READY TO DOWNLOAD</div>
+      <h2>Your prepared PDFs</h2>
+      <p class="muted">Download individual PDFs or grab the complete batch in one click as a ZIP.</p>
+    </div>
+    <div class="toolbar-actions">
+      <a class="button primary" id="downloadAllBtn" href="#" style="display:none">Download All (ZIP) ↓</a>
+      <button class="button ghost" id="newBatch2">＋ New batch</button>
+    </div>
+  </div>
+  <div id="results"></div>
+</section>
+
+<section class="rules-panel">
+  <details>
+    <summary>Remembered watermark rules <span>Optional, editable memory on this device</span></summary>
+    <div class="rules-content">
+      <p>Save exact text you recognize as old watermarks or branding (e.g. old Telegram channels, website URLs). Matching suggestions will be pre-checked for your review.</p>
+      <div class="rules-row">
+        <input id="ruleInput" placeholder="e.g. @ktu_notes or oldsite.com">
+        <button class="button secondary" id="addRule">Remember text</button>
+        <button class="button ghost" id="resetRules">Reset rules</button>
+      </div>
+      <div id="rulesList" class="rules-list"></div>
+    </div>
+  </details>
+</section>
+
+<footer>
+  <span>Azhumathimayam Note Maker · INVYTRA PDF Studio</span>
+  <span>Local-first · KTU 2024 Scheme & Study Note Preparation</span>
+</footer>
+</main>
+<div id="toast" class="toast" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
