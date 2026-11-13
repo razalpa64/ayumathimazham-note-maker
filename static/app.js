@@ -622,7 +622,18 @@ function docHTML(d) {
           ${imageSection}
           <div class="brain-box">
             <h4>Content-preserving watermark removal</h4>
-            <p class="muted">Select a separate image watermark above after checking its thumbnail and pages. If the mark is baked into a scan, outlined as graphics, or overlaps other text, it cannot be reliably separated without risking content. We leave it unchanged rather than guessing. For the best result, use an unwatermarked original.</p>
+            <p class="muted">Separate image objects above are the safest option. For a mark baked into a scan, try the experimental reconstruction below.</p>
+          </div>
+          <div class="brain-box">
+            <h4>Experimental scan reconstruction</h4>
+            <p class="muted">Only for pages containing one full-page scan. Draw around the mark, pick its color, and preview. Similar-colored notes may be changed; covered content cannot be recovered reliably. Inspect closely before approval. Processing runs on the app server, not an external AI service. This is image processing, not a generative AI model.</p>
+            <label>Page <select data-scan-page>${pages.map(p => `<option value="${p.number - 1}">Page ${p.number}</option>`).join('')}</select></label>
+            <label>Mark color <input data-scan-color type="color" value="#cccccc"></label>
+            <label>Color tolerance <input data-scan-tolerance type="number" value="20" min="1" max="100"></label>
+            <div class="region-preview" data-scan-area><img data-scan-image src="${esc(pages[0]?.preview || '')}" alt="Original page: drag to select the watermark"><div data-scan-overlay></div></div>
+            <button type="button" class="button secondary" data-scan-preview>Preview reconstruction</button>
+            <div data-scan-status class="muted" aria-live="polite">Draw a rectangle around the mark first.</div>
+            <div data-scan-result hidden><p>Proposed result — compare with the original above, including any text beneath the mark.</p><a data-scan-full target="_blank" rel="noopener">Open full-resolution result</a><br><img data-scan-output alt="Reconstructed page preview" style="max-width:100%;width:420px"><label class="checkline"><input type="checkbox" data-scan-approve> I reviewed this result and accept possible content changes.</label></div>
           </div>
           ${warnings}
         </div>
@@ -785,6 +796,47 @@ function bindDocs() {
     if (annotCtrl) annotCtrl.onchange = e => c.remove_brand_annotations = e.target.checked;
 
     card.querySelector('[data-watermark]').onchange = e => c.watermark = e.target.checked;
+
+    const scanArea = card.querySelector('[data-scan-area]'), scanPage = card.querySelector('[data-scan-page]');
+    const scanImage = card.querySelector('[data-scan-image]'), scanOverlay = card.querySelector('[data-scan-overlay]');
+    const scanColor = card.querySelector('[data-scan-color]'), scanTolerance = card.querySelector('[data-scan-tolerance]');
+    const scanResult = card.querySelector('[data-scan-result]'), scanOutput = card.querySelector('[data-scan-output]');
+    const scanApprove = card.querySelector('[data-scan-approve]'), scanStatus = card.querySelector('[data-scan-status]');
+    let rect = null, start = null, proposed = null, version = 0, previewUrl = null;
+    // A newly rendered editor must be reviewed again, never silently reuse an old approval.
+    delete c.scan_reconstruction;
+    const resetScan = () => {
+      version++; proposed = null; delete c.scan_reconstruction; scanApprove.checked = false;
+      scanResult.hidden = true;
+      if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+    };
+    const point = e => { const b = scanArea.getBoundingClientRect(); return [Math.max(0, Math.min(1,(e.clientX-b.left)/b.width)), Math.max(0, Math.min(1,(e.clientY-b.top)/b.height))]; };
+    scanArea.onpointerdown = e => { e.preventDefault(); resetScan(); start = point(e); scanArea.setPointerCapture(e.pointerId); };
+    scanArea.onpointerup = e => {
+      if (!start) return;
+      const end = point(e); rect = {x0: Math.min(start[0],end[0]), y0: Math.min(start[1],end[1]), x1: Math.max(start[0],end[0]), y1: Math.max(start[1],end[1])}; start = null;
+      if (rect.x1-rect.x0 < .005 || rect.y1-rect.y0 < .005) { rect = null; scanOverlay.innerHTML = ''; return; }
+      scanOverlay.innerHTML = `<div class="region-box" style="left:${rect.x0*100}%;top:${rect.y0*100}%;width:${(rect.x1-rect.x0)*100}%;height:${(rect.y1-rect.y0)*100}%"></div>`;
+      scanStatus.textContent = 'Selection ready. Choose the watermark color and preview.';
+    };
+    scanArea.onpointercancel = () => { start = null; };
+    scanPage.onchange = () => { resetScan(); rect = null; scanOverlay.innerHTML = ''; scanImage.src = d.pages[+scanPage.value].preview; scanStatus.textContent = 'Draw a rectangle around the mark first.'; };
+    for (const control of [scanColor, scanTolerance]) control.oninput = () => { resetScan(); scanStatus.textContent = 'Settings changed. Preview again.'; };
+    card.querySelector('[data-scan-preview]').onclick = async () => {
+      if (!rect) { scanStatus.textContent = 'Draw a rectangle around the mark first.'; return; }
+      resetScan(); const current = version;
+      const settings = {...rect, page: +scanPage.value, color: scanColor.value, tolerance: +scanTolerance.value};
+      scanStatus.textContent = 'Preparing local preview…';
+      try {
+        const res = await fetch(`/api/reconstruct-preview/${state.job}/${d.id}/${settings.page}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(settings)});
+        if (!res.ok) { const data = await res.json(); throw new Error(data.error || 'Preview failed'); }
+        const blob = await res.blob();
+        if (current !== version) return;
+        previewUrl = URL.createObjectURL(blob); scanOutput.src = previewUrl; card.querySelector('[data-scan-full]').href = previewUrl; proposed = settings;
+        scanResult.hidden = false; scanStatus.textContent = 'Compare the result with the original before approving.';
+      } catch (err) { if (current === version) scanStatus.textContent = err.message; }
+    };
+    scanApprove.onchange = () => { if (scanApprove.checked && proposed) c.scan_reconstruction = {...proposed, approved: true}; else delete c.scan_reconstruction; };
 
     syncCover(d.id);
   });
@@ -1086,7 +1138,7 @@ $('#processBtn').onclick = async () => {
       <div class="result-row">
         <div>
           <strong>${esc(x.filename)}</strong>
-          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}${x.removed_images?.length ? ` · removed ${x.removed_images.length} image object(s)` : ''}</small>
+          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}${x.removed_images?.length ? ` · removed ${x.removed_images.length} image object(s)` : ''}${x.reconstructed_page ? ` · reconstructed page ${x.reconstructed_page}; review carefully` : ''}</small>
         </div>
         <a class="button primary download-link" href="${x.url}" download="${esc(x.filename)}">Download PDF ↓</a>
       </div>` : `
