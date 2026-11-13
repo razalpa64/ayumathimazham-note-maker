@@ -143,7 +143,8 @@ def hex_to_rgb(hex_str: str | None, default: tuple[float, float, float]) -> tupl
 
 
 def render_text_watermark_png(width: float, height: float, label: str, sub_label: str,
-                              color: tuple[float, float, float], font_file: Path) -> bytes:
+                              color: tuple[float, float, float], font_file: Path,
+                              position: tuple[float, float] = (0.5, 0.5)) -> bytes:
     """Shape Malayalam with MuPDF's HTML text engine, then rotate the whole mark as one image."""
     from PIL import Image
 
@@ -169,8 +170,11 @@ def render_text_watermark_png(width: float, height: float, label: str, sub_label
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=True)
         layer = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
         # Keep the watermark visible but light enough not to compete with the notes.
-        layer.putalpha(layer.getchannel("A").point(lambda alpha: round(alpha * 0.58)))
+        layer.putalpha(layer.getchannel("A").point(lambda alpha: round(alpha * 0.22)))
         layer = layer.rotate(-35, resample=Image.Resampling.BICUBIC, expand=False)
+        shifted = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+        shifted.alpha_composite(layer, (round((position[0] - .5) * pix.width), round((position[1] - .5) * pix.height)))
+        layer = shifted
         output = io.BytesIO()
         layer.save(output, format="PNG", optimize=True)
         return output.getvalue()
@@ -588,13 +592,54 @@ def is_third_party_brand(text: str) -> bool:
     return False
 
 
+COVER_DEFAULT_LAYOUT = {"logo_x": .5, "logo_y": 252 / 842, "title_x": .5, "title_y": 536 / 842,
+                        "title_size": 26, "logo_width": 252, "title_color": "#1F1F1F"}
+
+
+def parse_cover_layout(raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        return COVER_DEFAULT_LAYOUT.copy()
+    out = COVER_DEFAULT_LAYOUT.copy()
+    for key in ("logo_x", "logo_y", "title_x", "title_y"):
+        try:
+            value = float(raw.get(key, out[key]))
+            if math.isfinite(value): out[key] = max(.08, min(.92, value))
+        except (ValueError, TypeError):
+            pass
+    for key, low, high in (("title_size", 12, 40), ("logo_width", 80, 350)):
+        try:
+            value = float(raw.get(key, out[key]))
+            if math.isfinite(value): out[key] = max(low, min(high, value))
+        except (ValueError, TypeError):
+            pass
+    if isinstance(raw.get("title_color"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", raw["title_color"]):
+        out["title_color"] = raw["title_color"]
+    return out
+
+
+WATERMARK_POSITIONS = {"center": (.5, .5), "top-left": (.25, .20), "top-center": (.5, .20),
+                       "top-right": (.75, .20), "middle-left": (.25, .5), "middle-right": (.75, .5),
+                       "bottom-left": (.25, .8), "bottom-center": (.5, .8), "bottom-right": (.75, .8)}
+
+
+def cover_fields(raw: Any, layout: Any) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    limits = {"title": 180, "course_code": 40, "module": 100, "institution": 120, "scheme": 60,
+              "category": 60, "website": 180, "phone": 32, "email": 80, "subtitle": 150, "tags": 150}
+    fields = {k: str(raw.get(k, "") or "").strip()[:limits.get(k, 200)] for k in FIELDS}
+    fields["website"] = normalized_url(fields.get("website", "")) or fields.get("website", "")
+    fields["_cover_layout"] = parse_cover_layout(layout)
+    return fields
+
+
 def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None) -> None:
     """Draw a precision-crafted Azhumathimayam & Invytra cover page matching the exact design."""
     page = doc.new_page(width=595, height=842)
     banner_color = hex_to_rgb(fields.get("banner_color") or fields.get("theme_color"), (100 / 255, 0, 0))  # Default #640000
     bg_color = hex_to_rgb(fields.get("bg_color"), (247 / 255, 244 / 255, 239 / 255))                     # Default #F7F4EF
     cat_color = hex_to_rgb(fields.get("cat_color"), banner_color)
-    ink = (0.12, 0.12, 0.12)                                                                              # #1F1F1F deep charcoal
+    layout = parse_cover_layout(fields.get("_cover_layout"))
+    ink = hex_to_rgb(layout["title_color"], (0.12, 0.12, 0.12))                                                                              # #1F1F1F deep charcoal
 
     # Top 50.4% Banner (0 to 424.2 pt)
     page.draw_rect(fitz.Rect(0, 0, 595, 424.2), color=banner_color, fill=banner_color)
@@ -628,12 +673,13 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
         return lines
 
     def centered(text: str, baseline: float, size: float, fontfile: str, color,
-                 max_width: float = 500, max_lines: int = 1, leading: float = 1.25) -> float:
+                 max_width: float = 500, max_lines: int = 1, leading: float = 1.25,
+                 center_x: float = 297.5) -> float:
         font = fitz.Font(fontfile=fontfile)
         lines = wrap(text, font, size, max_width, max_lines)
         for line in lines:
             width = font.text_length(line, fontsize=size)
-            page.insert_text(((595 - width) / 2, baseline), line, fontfile=fontfile,
+            page.insert_text((center_x - width / 2, baseline), line, fontname="CoverBold" if fontfile == font_bold else "CoverSans", fontfile=fontfile,
                              fontsize=size, color=color)
             baseline += size * leading
         return baseline
@@ -651,7 +697,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
         width = font.text_length(text, fontsize=size) + max(0, len(text) - 1) * tracking
         x = (595 - width) / 2
         for char in text:
-            page.insert_text((x, baseline), char, fontfile=font_bold, fontsize=size, color=color)
+            page.insert_text((x, baseline), char, fontname="CoverBold", fontfile=font_bold, fontsize=size, color=color)
             x += font.text_length(char, fontsize=size) + tracking
 
     # Optional academic scheme label; leave the top edge clean unless supplied.
@@ -664,12 +710,13 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     if logo_file.exists():
         try:
             pix = fitz.Pixmap(str(logo_file))
-            target_w = 252.0
+            target_w = layout["logo_width"]
             ratio = target_w / max(1, pix.width)
             target_h = pix.height * ratio
-            center_y = 252.0
-            target_rect = fitz.Rect((595 - target_w) / 2, center_y - target_h / 2,
-                                    (595 + target_w) / 2, center_y + target_h / 2)
+            center_y = layout["logo_y"] * 842
+            center_x = layout["logo_x"] * 595
+            target_rect = fitz.Rect(center_x - target_w / 2, center_y - target_h / 2,
+                                    center_x + target_w / 2, center_y + target_h / 2)
             page.insert_image(target_rect, filename=str(logo_file), keep_proportion=True)
         except Exception:
             centered("അഴിമതി മയം", 252, 36, font_bold, (1, 1, 1))
@@ -685,8 +732,8 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     title = (fields.get("title") or "Study Notes").strip()
     # A clean sans face keeps long course titles legible and matches the cover's
     # restrained, editorial look. Step the size down gently for longer titles.
-    title_size = 26.0 if len(title) <= 30 else 23.5 if len(title) <= 55 else 20.0
-    y = centered(title, 536, title_size, font_sans, ink, 470, max_lines=2, leading=1.18)
+    title_size = layout["title_size"]
+    y = centered(title, layout["title_y"] * 842, title_size, font_sans, ink, 470, max_lines=2, leading=1.18, center_x=layout["title_x"] * 595)
 
     # Keep supporting details separate from the title so course metadata is not
     # silently lost, while giving the title block enough breathing room.
@@ -710,7 +757,7 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
     font_bold_obj = fitz.Font(fontfile=font_bold)
     btn_size = 11.5 if font_bold_obj.text_length(display, fontsize=11.5) <= 440 else 10.0
     btn_w = font_bold_obj.text_length(display, fontsize=btn_size)
-    page.insert_text(((595 - btn_w) / 2, button_top + 25.5), display, fontfile=font_bold, fontsize=btn_size, color=(1, 1, 1))
+    page.insert_text(((595 - btn_w) / 2, button_top + 25.5), display, fontname="CoverBold", fontfile=font_bold, fontsize=btn_size, color=(1, 1, 1))
 
     url = normalized_url(website) or "https://azhumathimayam.invytra.in"
     try:
@@ -938,10 +985,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         include_cover = config.get("add_cover", True) is True
         preserve_document = not include_cover and not remove_pages and reconstruction_page is None
         output = fitz.open(original) if preserve_document else fitz.open()
-        raw_fields = config.get("fields") if isinstance(config.get("fields"), dict) else {}
-        limits = {"title": 180, "course_code": 40, "module": 100, "institution": 120, "scheme": 60, "category": 60, "website": 180, "phone": 32, "email": 80, "subtitle": 150, "tags": 150}
-        fields = {k: str(raw_fields.get(k, "") or "").strip()[:limits.get(k, 200)] for k in FIELDS}
-        fields["website"] = normalized_url(fields.get("website", "")) or fields.get("website", "")
+        fields = cover_fields(config.get("fields"), config.get("cover_layout"))
         
         logo_path = Path(job["logo_path"]) if job.get("logo_path") else (BASE / "static" / "azhumathimayam-logo.png")
         if include_cover:
@@ -1036,23 +1080,27 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             except Exception:
                 pass
 
-            # 6. Watermark placement (drawn strictly UNDER the text: overlay=False)
+            # 6. Translucent watermark placement over existing content
             if config.get("watermark", True) is True and src_idx in watermark_pages:
                 rect = page.rect
                 raw_wm = fields.get("watermark_color") or fields.get("banner_color")
                 wm_rgb = hex_to_rgb(raw_wm, (100 / 255, 0, 0))
-                # Crisp legible tint that stays subtle behind text
+                # Light tint to reduce interference with notes
                 wm_tint = (
                     min(1.0, wm_rgb[0] * 0.52 + 0.38),
                     min(1.0, wm_rgb[1] * 0.52 + 0.38),
                     min(1.0, wm_rgb[2] * 0.52 + 0.38)
                 )
 
-                center_x = rect.width / 2
-                center_y = rect.height / 2
+                position_name = config.get("watermark_position", "center")
+                if not isinstance(position_name, str) or position_name not in WATERMARK_POSITIONS:
+                    raise ValueError("Invalid watermark position.")
+                wm_position = WATERMARK_POSITIONS[position_name]
+                center_x = rect.width * wm_position[0]
+                center_y = rect.height * wm_position[1]
                 wm_type = str(fields.get("watermark_type") or config.get("watermark_type") or "text").lower()
 
-                # Option A: Custom Image Watermark (drawn UNDER text)
+                # Option A: Custom Image Watermark
                 if wm_type == "image":
                     wm_img = None
                     if job.get("watermark_image_path") and Path(job["watermark_image_path"]).exists():
@@ -1071,10 +1119,16 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                                 center_x - target_w / 2, center_y - target_h / 2,
                                 center_x + target_w / 2, center_y + target_h / 2
                             )
-                            # overlay=False ensures watermark image is drawn UNDER existing text!
-                            page.insert_image(target_rect, filename=str(wm_img), keep_proportion=True, overlay=False)
-                        except Exception:
-                            pass
+                            # A translucent overlay remains visible on opaque scan images.
+                            from PIL import Image
+                            wm = Image.open(wm_img).convert("RGBA")
+                            wm.putalpha(wm.getchannel("A").point(lambda a: round(a * .22)))
+                            data = io.BytesIO(); wm.save(data, format="PNG")
+                            page.insert_image(target_rect * page.derotation_matrix, stream=data.getvalue(), keep_proportion=True, overlay=True)
+                        except Exception as exc:
+                            raise ValueError(f"Could not add the selected image watermark: {str(exc)[:120]}") from exc
+                    else:
+                        raise ValueError("No watermark image is available. Upload an image or choose text watermark.")
 
                 # Option B: Shape text with the Malayalam font, then rotate the complete
                 # centered lockup as one transparent watermark image. This avoids
@@ -1086,35 +1140,21 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                         font_file = BASE / "static" / "NotoSansMalayalam.ttf"
                         cache_key = (
                             round(rect.width, 2), round(rect.height, 2), label, sub_label,
-                            tuple(round(channel, 4) for channel in wm_tint)
+                            tuple(round(channel, 4) for channel in wm_tint), wm_position
                         )
                         cached = watermark_image_cache.get(cache_key)
                         if cached and cached[1]:
-                            page.insert_image(rect, xref=cached[1], overlay=False)
+                            page.insert_image(rect * page.derotation_matrix, xref=cached[1], overlay=True)
                         else:
                             png = cached[0] if cached else render_text_watermark_png(
-                                rect.width, rect.height, label, sub_label, wm_tint, font_file
+                                rect.width, rect.height, label, sub_label, wm_tint, font_file, wm_position
                             )
-                            image_xref = page.insert_image(rect, stream=png, overlay=False)
+                            image_xref = page.insert_image(rect * page.derotation_matrix, stream=png, overlay=True)
                             watermark_image_cache[cache_key] = (png, image_xref)
-                    except Exception:
-                        try:
-                            logo = BASE / "static" / "azhumathimayam-logo.png"
-                            if logo.exists():
-                                pix = fitz.Pixmap(str(logo))
-                                target_w = min(rect.width * 0.45, 260.0)
-                                target_h = target_w * (pix.height / max(1, pix.width))
-                                target_rect = fitz.Rect(
-                                    center_x - target_w / 2, center_y - target_h / 2,
-                                    center_x + target_w / 2, center_y + target_h / 2
-                                )
-                                page.insert_image(target_rect, filename=str(logo), keep_proportion=True, overlay=False)
-                        except Exception:
-                            pass
+                    except Exception as exc:
+                        raise ValueError(f"Could not add the text watermark: {str(exc)[:120]}") from exc
 
-                # Discreet anti-piracy running stamps in margins (under text)
-                page.insert_text((42, 22), "AZHUMATHIMAYAM · STUDY NOTES", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=False)
-                page.insert_text((42, rect.height - 18), "azhumathimayam.invytra.in · All Study Rights Reserved", fontname="helv", fontsize=7.0, color=(0.52, 0.46, 0.44), overlay=False)
+
 
         # Object-only removal should not modify selectable text. Stop instead of
         # delivering a misleading "clean" result if the PDF engine disagrees.
@@ -1166,6 +1206,8 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             "url": f"/download/{job['id']}/{out_path.name}",
             "pages": final_pages,
             "removed_pages": [x + 1 for x in sorted(remove_pages)],
+            "cover_added": include_cover,
+            "watermarked_pages": [i + 1 for i, _ in retained_map if config.get("watermark", True) is True and i in watermark_pages],
             "removed_text": removal_report,
             "removed_images": image_removal_report,
             "reconstructed_page": reconstruction_page + 1 if reconstruction_page is not None else None,
@@ -1367,6 +1409,23 @@ def image_removal_preview(job_id, doc_id, xref, page_no):
             return app.response_class(pix.tobytes("png"), mimetype="image/png", headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
+
+
+@app.post("/api/cover-preview/<job_id>")
+def live_cover_preview(job_id):
+    job = get_job_state(job_id)
+    if not job:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    fields = cover_fields(payload.get("fields"), payload.get("cover_layout"))
+    logo = Path(job["logo_path"]) if job.get("logo_path") else BASE / "static" / "azhumathimayam-logo.png"
+    try:
+        with fitz.open() as doc:
+            add_cover(doc, fields, logo)
+            png = doc[0].get_pixmap(matrix=fitz.Matrix(.7, .7), alpha=False).tobytes("png")
+        return app.response_class(png, mimetype="image/png", headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        return jsonify(error=f"Could not render cover: {str(exc)[:150]}"), 400
 
 
 @app.post("/api/upload-watermark/<job_id>")

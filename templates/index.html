@@ -66,7 +66,7 @@
           </label>
           <label class="file-option">
             <span class="option-icon">🛡</span>
-            <span><b>Watermark art</b><small>Optional image/stamp · placed under text</small></span>
+            <span><b>Watermark art</b><small>Optional image/stamp · translucent overlay</small></span>
             <input id="watermarkImage" type="file" accept="image/png,image/jpeg,image/webp">
           </label>
         </div>
@@ -75,7 +75,7 @@
       </form>
       <details class="privacy">
         <summary>Privacy & local deterministic engine</summary>
-        <p>Files are analyzed strictly on this device. No cloud APIs, no external OCR, and no data tracking. The brain
+        <p>Files are processed on the app server; on hosted deployments, files are uploaded to that server. No external OCR is used. The engine
           uses selectable PDF text, links, headings, vector structures, and deterministic rules. Your original files
           remain completely untouched.</p>
       </details>
@@ -142,12 +142,12 @@
           </div>
         </div>
 
-        <!-- 🛡️ Custom Watermark Selector (Text or Image, Placed Under Text) -->
+        <!-- Custom watermark selector -->
         <div class="watermark-bar">
           <div class="watermark-bar-head">
             <div class="watermark-bar-title">
-              <strong>Watermark Protection (Drawn Under Notes)</strong>
-              <small>Appears behind study notes text so original equations, code, and diagrams remain 100% readable</small>
+              <strong>Watermark Protection</strong>
+              <small>A translucent overlay remains visible on scans; review page readability.</small>
             </div>
             <div class="wm-type-pills" id="wmTypePills">
               <button type="button" class="wm-type-pill active" data-wm-type="text">Text Watermark</button>
@@ -177,7 +177,7 @@
               <div id="wmImageThumbWrap" class="wm-thumb-wrap hidden">
                 <img id="wmImageThumb" src="" alt="Watermark stamp preview">
               </div>
-              <span id="wmImageStatusText" class="muted">Upload custom PNG/JPEG stamp (placed centered behind text)</span>
+              <span id="wmImageStatusText" class="muted">Upload custom PNG/JPEG stamp (position chosen per PDF)</span>
             </div>
           </div>
         </div>
@@ -297,7 +297,7 @@
                   </div>
                   <div class="stitch-hud-stamp center" id="stitchHudCenter">
                     <span class="hud-icon">🛡</span>
-                    <span class="hud-text">അഴിമതി മയം STAMPED UNDER TEXT</span>
+                    <span class="hud-text">WATERMARK SELECTED</span>
                   </div>
                   <div class="stitch-hud-stamp bottom" id="stitchHudBottom">
                     <span class="hud-icon">✓</span>
