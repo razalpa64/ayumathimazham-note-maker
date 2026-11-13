@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import hashlib
 import html
 import os
@@ -722,6 +723,23 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         if not isinstance(raw_marks, list): raw_marks = []
         exact_marks = list(dict.fromkeys(str(x).strip()[:140] for x in raw_marks[:50] if str(x).strip()))
         
+        # Rectangles are normalized to the displayed (possibly rotated) page.
+        raw_regions = config.get("erase_regions", [])
+        if not isinstance(raw_regions, list) or len(raw_regions) > 20:
+            raise ValueError("At most 20 fixed watermark regions are allowed.")
+        erase_regions = []
+        for region in raw_regions:
+            try:
+                coords = [float(region[k]) for k in ("x0", "y0", "x1", "y1")]
+                region_page = region.get("page")
+                if (not all(math.isfinite(v) and 0 <= v <= 1 for v in coords)
+                        or coords[0] >= coords[2] or coords[1] >= coords[3]
+                        or (region_page is not None and (type(region_page) is not int or not 0 <= region_page < src.page_count))):
+                    raise ValueError()
+                erase_regions.append((coords, region_page))
+            except (ValueError, TypeError, KeyError, AttributeError):
+                raise ValueError("Invalid fixed watermark region.")
+
         raw_watermark_pages = config.get("watermark_pages", [])
         if not isinstance(raw_watermark_pages, list): raw_watermark_pages = []
         watermark_pages = {int(x) for x in raw_watermark_pages[:MAX_PAGES] if str(x).isdigit()}
@@ -786,6 +804,17 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                 page.apply_redactions(images=0, graphics=0, text=0)
             except Exception:
                 pass
+
+            # Explicit, destructive area removal also handles flattened scans and vector art.
+            for coords, region_page in erase_regions:
+                if region_page is not None and region_page != src_idx:
+                    continue
+                r = page.rect
+                visible = fitz.Rect(r.x0 + coords[0] * r.width, r.y0 + coords[1] * r.height,
+                                    r.x0 + coords[2] * r.width, r.y0 + coords[3] * r.height)
+                page.add_redact_annot(visible * page.derotation_matrix, fill=(1, 1, 1), cross_out=False)
+            if any(region_page is None or region_page == src_idx for _, region_page in erase_regions):
+                page.apply_redactions(images=2, graphics=1, text=0)
 
             # 4. Remove all third-party external links (keep internal and invytra links)
             try:
