@@ -578,6 +578,17 @@ function docHTML(d) {
       <div>
         <label class="checkline"><input type="checkbox" data-remove-image="${i}" ${c.remove_image_groups.includes(im.xref) ? 'checked' : ''}> Remove matching image object${im.object_count > 1 ? 's' : ''} everywhere used</label>
         <small>Found on pages ${esc(im.pages.join(', '))} · ${im.object_count} matching object(s). ${esc(im.warning)}</small>
+        <details class="image-compare" data-compare="${i}">
+          <summary>Compare a page before and after removal</summary>
+          <p class="muted">Preview removes only this image group, not any other changes. Check several pages, especially where the image overlaps notes.</p>
+          <label>Page <select data-compare-page>${im.pages.map(n => `<option value="${n - 1}">${n}</option>`).join('')}</select></label>
+          <button type="button" class="button secondary" data-compare-run>Preview removal</button>
+          <div class="muted" data-compare-status aria-live="polite"></div>
+          <div class="compare-pages" data-compare-result hidden>
+            <figure><figcaption>Original</figcaption><img data-compare-original alt="Original page"></figure>
+            <figure><figcaption>Without this image group</figcaption><img data-compare-after alt="Page with selected image group removed"></figure>
+          </div>
+        </details>
       </div>
     </div>`).join('');
 
@@ -765,6 +776,28 @@ function bindDocs() {
       i.onchange = () => {
         let x = d.repeated_images[+i.dataset.removeImage].xref;
         c.remove_image_groups = i.checked ? [...new Set([...c.remove_image_groups, x])] : c.remove_image_groups.filter(t => t !== x);
+      };
+    });
+
+    card.querySelectorAll('[data-compare]').forEach(el => {
+      const candidate = d.repeated_images[+el.dataset.compare], select = el.querySelector('[data-compare-page]');
+      const result = el.querySelector('[data-compare-result]'), status = el.querySelector('[data-compare-status]');
+      let version = 0, url = null;
+      select.onchange = () => { version++; result.hidden = true; status.textContent = 'Preview the newly selected page.'; if (url) URL.revokeObjectURL(url); url = null; };
+      el.querySelector('[data-compare-run]').onclick = async () => {
+        const current = ++version, page = +select.value;
+        result.hidden = true; status.textContent = 'Preparing comparison…';
+        if (url) { URL.revokeObjectURL(url); url = null; }
+        try {
+          const response = await fetch(`/image-removal-preview/${state.job}/${d.id}/${candidate.xref}/${page}`);
+          if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.error || 'Could not preview this page.'); }
+          const blob = await response.blob();
+          if (current !== version) return;
+          url = URL.createObjectURL(blob);
+          el.querySelector('[data-compare-original]').src = d.pages[page].preview;
+          el.querySelector('[data-compare-after]').src = url;
+          result.hidden = false; status.textContent = 'Compare the result before selecting the group.';
+        } catch (error) { if (current === version) status.textContent = error.message; }
       };
     });
 
@@ -1142,7 +1175,7 @@ $('#processBtn').onclick = async () => {
       <div class="result-row">
         <div>
           <strong>${esc(x.filename)}</strong>
-          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}${x.removed_images?.length ? ` · removed ${x.removed_images.length} image object(s)` : ''}${x.reconstructed_page ? ` · reconstructed page ${x.reconstructed_page}; review carefully` : ''}</small>
+          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}${x.removed_images?.length ? ` · removed ${x.removed_images.length} image object(s)` : ''}${x.reconstructed_page ? ` · reconstructed page ${x.reconstructed_page}; review carefully` : ''}${x.text_verified ? ' · selectable text verified unchanged' : ''}</small>
         </div>
         <a class="button primary download-link" href="${x.url}" download="${esc(x.filename)}">Download PDF ↓</a>
       </div>` : `

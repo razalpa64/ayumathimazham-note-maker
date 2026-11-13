@@ -425,6 +425,22 @@ def image_groups(doc: fitz.Document, occurrences: dict[int, list]) -> list[dict]
     return list(grouped.values())
 
 
+def image_mask_references(doc: fitz.Document, xrefs: set[int]) -> set[int]:
+    """Find image resources also used as masks; replacing these damages other images."""
+    masks = set()
+    for xref in xrefs:
+        for key in ("SMask", "Mask"):
+            kind, value = doc.xref_get_key(xref, key)
+            if kind == "xref":
+                masks.add(int(value.split()[0]))
+    return masks
+
+
+def assert_images_not_masks(doc: fitz.Document, selected: set[int], image_xrefs: set[int]) -> None:
+    if selected & image_mask_references(doc, image_xrefs):
+        raise ValueError("A selected image is also used as another image's mask; removal was stopped to protect content.")
+
+
 def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
     try:
         doc = fitz.open(path)
@@ -506,15 +522,15 @@ def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
             text_candidates.append({"text": text_val[:140], "count": count, "pages": found_pages, "confidence": .78, "kind": "repeated selectable text"})
         image_occurrences = defaultdict(list)
         for i, imgs in enumerate(per_page_img):
-            page = doc[i]
-            for row in imgs:
-                xref = row[0]
-                if xref <= 0:
-                    continue
-                rects = [[round(r.x0, 1), round(r.y0, 1), round(r.x1, 1), round(r.y1, 1)] for r in page.get_image_rects(xref)]
-                image_occurrences[xref].append({"page": i + 1, "rects": rects})
+            for placement in pages[i]["image_placements"]:
+                xref = placement["xref"]
+                if xref > 0:
+                    image_occurrences[xref].append({"page": i + 1, "rects": placement["rects"]})
+        mask_xrefs = image_mask_references(doc, set(image_occurrences))
         repeated_images = []
         for group in image_groups(doc, image_occurrences):
+            if mask_xrefs.intersection(group["xrefs"]):
+                continue
             occurrences = group["placements"]
             # Exclude scans or anything also used as a large page image.
             if not any(o["rects"] for o in occurrences) or not all(
@@ -813,15 +829,17 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         if not isinstance(selected_groups, list) or len(selected_groups) > 20:
             raise ValueError("Select at most 20 image groups.")
         selected_groups = {int(x) for x in selected_groups if str(x).isdigit() and 0 < int(x) < src.xref_length()}
-        if selected_groups:
+        if selected_groups or selected_images:
             occurrences = defaultdict(list)
             for i, page in enumerate(src):
                 for row in page.get_images(full=True):
                     if row[0] > 0:
                         occurrences[row[0]].append(i)
-            for group in image_groups(src, occurrences):
-                if selected_groups.intersection(group["xrefs"]):
-                    selected_images.update(group["xrefs"])
+            if selected_groups:
+                for group in image_groups(src, occurrences):
+                    if selected_groups.intersection(group["xrefs"]):
+                        selected_images.update(group["xrefs"])
+            assert_images_not_masks(src, selected_images, set(occurrences))
         # Map selected source objects to their copied objects by their resource position.
         # Do not match by image bytes: identical bytes can have different masks or uses.
         if config.get("erase_regions"):
@@ -1016,6 +1034,16 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                 page.insert_text((42, 22), "AZHUMATHIMAYAM · STUDY NOTES", fontname="helv", fontsize=7.5, color=(0.52, 0.46, 0.44), overlay=False)
                 page.insert_text((42, rect.height - 18), "azhumathimayam.invytra.in · All Study Rights Reserved", fontname="helv", fontsize=7.0, color=(0.52, 0.46, 0.44), overlay=False)
 
+        # Object-only removal should not modify selectable text. Stop instead of
+        # delivering a misleading "clean" result if the PDF engine disagrees.
+        text_verified = bool(selected_images and not exact_marks and reconstruction_page is None
+                             and not (config.get("watermark", True) is True
+                                      and any(i in watermark_pages for i, _ in retained_map)))
+        if text_verified:
+            for src_idx, out_idx in retained_map:
+                if src[src_idx].get_text("text") != output[out_idx].get_text("text"):
+                    raise ValueError(f"Text changed on page {src_idx + 1}; image removal was stopped.")
+
         clean_title = fields.get("title") or Path(pdf_info["filename"]).stem
         topic = re.sub(r"[^\w\s-]", "", clean_title).strip()
         topic = re.sub(r"[\s_]+", "_", topic)[:60].strip("_") or "Notes"
@@ -1060,6 +1088,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             "removed_images": image_removal_report,
             "reconstructed_page": reconstruction_page + 1 if reconstruction_page is not None else None,
             "verified": True,
+            "text_verified": text_verified,
             "size": out_path.stat().st_size if out_path.exists() else 0
         }
         return {"ok": True, **report}
@@ -1222,6 +1251,40 @@ def preview(job_id, doc_id, page_no):
         return app.response_class(pix.tobytes("png"), mimetype="image/png", headers={"Cache-Control": "no-store"})
     except Exception:
         abort(404)
+
+
+@app.get("/image-removal-preview/<job_id>/<doc_id>/<int:xref>/<int:page_no>")
+def image_removal_preview(job_id, doc_id, xref, page_no):
+    """Show one page after removing only this group, without changing the source."""
+    job = get_job_state(job_id)
+    if not job or doc_id not in job.get("files", {}):
+        abort(404)
+    try:
+        with fitz.open(job["files"][doc_id]["path"]) as doc:
+            if not 0 <= page_no < doc.page_count or not 0 < xref < doc.xref_length():
+                abort(404)
+            occurrences = defaultdict(list)
+            for i, p in enumerate(doc):
+                for row in p.get_images(full=True):
+                    if row[0] > 0:
+                        occurrences[row[0]].append(i)
+            if xref not in occurrences:
+                abort(404)
+            fingerprint = image_fingerprint(doc, xref)
+            matching = {candidate for candidate in occurrences
+                        if candidate == xref or (fingerprint is not None and image_fingerprint(doc, candidate) == fingerprint)}
+            assert_images_not_masks(doc, matching, set(occurrences))
+            page = doc[page_no]
+            page_xrefs = {row[0] for row in page.get_images(full=True)} & matching
+            if not page_xrefs:
+                return jsonify(error="The selected image is not used on that page."), 400
+            for image_xref in page_xrefs:
+                page.delete_image(image_xref)
+            scale = min(.65, 900.0 / max(page.rect.width, page.rect.height, 1.0))
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            return app.response_class(pix.tobytes("png"), mimetype="image/png", headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
 
 
 @app.post("/api/upload-watermark/<job_id>")
