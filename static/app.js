@@ -311,17 +311,19 @@ function initConfigs() {
 
     state.configs[d.id] = {
       fields: f,
-      remove_pages: [],
+      remove_pages: d.page_count > 1 ? [0] : [],
       remove_texts: [],
       manual_mark: '',
       manual_include: false,
-      watermark: false,
-      watermark_pages: d.pages.filter(p => p.classification.label === 'Study material').map(p => p.number - 1),
+      watermark: true,
+      watermark_pages: d.pages.map(p => p.number - 1),
+      watermark_position: 'center',
+      cover_layout: {logo_x: .5, logo_y: 252/842, title_x: .5, title_y: 536/842, title_size: 26, logo_width: 252, title_color: '#1f1f1f'},
       remove_brand_links: false,
       remove_brand_annotations: false,
       remove_images: [],
       remove_image_groups: [],
-      add_cover: false
+      add_cover: true
     };
   });
 }
@@ -441,9 +443,13 @@ function renderReview(resp) {
         const c = state.configs[d.id];
         if (c) c.fields.watermark_type = mode;
       });
-      toast(`Watermark mode: ${mode === 'image' ? 'Image Stamp (under text)' : 'Text Watermark (under text)'}`);
+      toast(`Watermark mode: ${mode === 'image' ? 'Image Stamp' : 'Text Watermark'}`);
     };
   });
+
+  if (resp.watermark_image_uploaded) {
+    wmTypePills.find(p => p.dataset.wmType === 'image')?.click();
+  }
 
   if (globalWmText) {
     globalWmText.oninput = e => {
@@ -478,7 +484,8 @@ function renderReview(resp) {
           if (wmImageThumbWrap) wmImageThumbWrap.classList.remove('hidden');
           if (wmImageThumb) wmImageThumb.src = `/watermark-preview/${state.job}?t=${Date.now()}`;
           if (wmImageStatusText) wmImageStatusText.textContent = 'Custom watermark image saved ✓';
-          toast('✓ Custom watermark image uploaded!');
+          wmTypePills.find(p => p.dataset.wmType === 'image')?.click();
+          toast('✓ Custom watermark image uploaded and selected!');
         }
       } catch (err) {
         toast(`Upload failed: ${err.message}`);
@@ -611,6 +618,7 @@ function docHTML(d) {
           <div class="doc-fields">${fields.map(([k, l]) => inputHTML(k, l, f[k] || '')).join('')}</div>
 
           <div class="section-title" style="margin-top:24px">Page decisions</div>
+          <p class="muted">${d.page_count > 1 ? 'Page 1 is selected for removal as the old cover. Check its preview and uncheck it if it contains notes.' : 'This single-page PDF is retained; at least one original page must remain.'} Select any other pages you want removed.</p>
           <div class="pages-list">${pageRows}</div>
 
           <div class="brain-box">
@@ -631,8 +639,12 @@ function docHTML(d) {
           </div>
 
           <label class="checkline">
-            <input type="checkbox" data-watermark ${c.watermark ? 'checked' : ''}> Add subtle watermark behind text on retained study pages
+            <input type="checkbox" data-watermark ${c.watermark ? 'checked' : ''}> Add my watermark to selected retained pages
           </label>
+          <label>Watermark position <select data-watermark-position>
+            ${[['center','Center'],['top-left','Top left'],['top-center','Top center'],['top-right','Top right'],['middle-left','Middle left'],['middle-right','Middle right'],['bottom-left','Bottom left'],['bottom-center','Bottom center'],['bottom-right','Bottom right']].map(([v,l]) => `<option value="${v}" ${c.watermark_position === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select></label>
+          <p class="muted">The watermark is translucent and placed over page content so it also appears on scans; review readability. Use the page checkboxes above to choose where it appears.</p>
           ${imageSection}
           <div class="brain-box">
             <h4>Content-preserving watermark removal</h4>
@@ -655,10 +667,22 @@ function docHTML(d) {
         </div>
 
         <div>
-          <div class="section-title">Live Cover Preview</div>
+          <div class="section-title">Cover editor</div>
           <div class="cover-preview">
-            <div class="cover-caption">Updates instantly as you edit</div>
-            <div class="cover" data-cover="${d.id}">
+            <div class="cover-caption">Drag the logo or title handles; the image is rendered from the actual PDF cover</div>
+            <div class="cover-canvas" data-cover-canvas><img data-cover-render alt="PDF cover preview"><button type="button" class="cover-handle" data-cover-handle="logo" aria-label="Drag logo position">Logo</button><button type="button" class="cover-handle" data-cover-handle="title" aria-label="Drag title position">Title</button></div>
+            <div class="cover-controls">
+              <label>Logo X <input type="range" min="8" max="92" data-cover-number="logo_x"></label>
+              <label>Logo Y <input type="range" min="8" max="92" data-cover-number="logo_y"></label>
+              <label>Title X <input type="range" min="8" max="92" data-cover-number="title_x"></label>
+              <label>Title Y <input type="range" min="8" max="92" data-cover-number="title_y"></label>
+              <label>Title size <input type="number" min="12" max="40" data-cover-number="title_size"></label>
+              <label>Logo width <input type="number" min="80" max="350" data-cover-number="logo_width"></label>
+              <label>Title color <input type="color" data-cover-number="title_color"></label>
+              <button type="button" class="button ghost" data-cover-reset>Reset layout</button>
+              <small data-cover-status aria-live="polite"></small>
+            </div>
+            <div class="cover" style="display:none" data-cover="${d.id}">
               <div class="cover-top">
                 <div class="cover-scheme">${esc((f.scheme || '').toUpperCase())}</div>
                 <img class="cover-logo" src="${state.logoUrl}" alt="Azhumathimayam">
@@ -747,6 +771,31 @@ function syncCover(id) {
   if (contactEl) contactEl.style.color = banner;
   if (brandEl) brandEl.style.color = banner;
   if (catEl) catEl.style.color = cat;
+  scheduleCoverPreview(id);
+}
+
+const coverPreviewTimers = new Map();
+const coverPreviewVersions = new Map();
+const coverPreviewURLs = new Map();
+function scheduleCoverPreview(id) {
+  clearTimeout(coverPreviewTimers.get(id));
+  const version = (coverPreviewVersions.get(id) || 0) + 1;
+  coverPreviewVersions.set(id, version);
+  coverPreviewTimers.set(id, setTimeout(async () => {
+    const card = document.querySelector(`[data-doc="${id}"]`), c = state.configs[id];
+    if (!card || !c) return;
+    const status = card.querySelector('[data-cover-status]');
+    try {
+      const res = await fetch(`/api/cover-preview/${state.job}`, {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({fields: c.fields, cover_layout: c.cover_layout})});
+      if (!res.ok) { const data = await res.json(); throw new Error(data.error || 'Cover preview failed'); }
+      const blob = await res.blob();
+      if (coverPreviewVersions.get(id) !== version || !card.isConnected) return;
+      const previous = coverPreviewURLs.get(id); if (previous) URL.revokeObjectURL(previous);
+      const url = URL.createObjectURL(blob); coverPreviewURLs.set(id, url);
+      card.querySelector('[data-cover-render]').src = url;
+      status.textContent = 'Preview updated';
+    } catch (e) { if (coverPreviewVersions.get(id) === version && card.isConnected) status.textContent = e.message; }
+  }, 250));
 }
 
 function bindDocs() {
@@ -835,6 +884,34 @@ function bindDocs() {
 
     card.querySelector('[data-watermark]').onchange = e => c.watermark = e.target.checked;
     card.querySelector('[data-add-cover]').onchange = e => c.add_cover = e.target.checked;
+    card.querySelector('[data-watermark-position]').onchange = e => c.watermark_position = e.target.value;
+    const canvas = card.querySelector('[data-cover-canvas]');
+    const layoutControls = card.querySelectorAll('[data-cover-number]');
+    const showLayout = () => {
+      layoutControls.forEach(el => { const k = el.dataset.coverNumber; el.value = k.endsWith('_x') || k.endsWith('_y') ? Math.round(c.cover_layout[k]*100) : c.cover_layout[k]; });
+      canvas.querySelectorAll('[data-cover-handle]').forEach(h => { const k = h.dataset.coverHandle; h.style.left = `${c.cover_layout[k+'_x']*100}%`; h.style.top = `${c.cover_layout[k+'_y']*100}%`; });
+    };
+    layoutControls.forEach(el => el.oninput = () => {
+      const k = el.dataset.coverNumber, val = el.type === 'color' ? el.value : Number(el.value);
+      if (el.type === 'number' && (!el.value || !Number.isFinite(val))) return;
+      c.cover_layout[k] = k.endsWith('_x') || k.endsWith('_y') ? val/100 : val;
+      showLayout(); scheduleCoverPreview(d.id);
+    });
+    canvas.querySelectorAll('[data-cover-handle]').forEach(handle => {
+      let dragging = false;
+      const update = e => { const b = canvas.getBoundingClientRect(), k = handle.dataset.coverHandle;
+        c.cover_layout[k+'_x'] = Math.max(.08, Math.min(.92, (e.clientX-b.left)/b.width));
+        c.cover_layout[k+'_y'] = Math.max(.08, Math.min(.92, (e.clientY-b.top)/b.height));
+        showLayout(); scheduleCoverPreview(d.id);
+      };
+      handle.onpointerdown = e => { e.preventDefault(); dragging = true; handle.setPointerCapture(e.pointerId); update(e); };
+      handle.onpointermove = e => { if (dragging) update(e); };
+      handle.onpointerup = () => { dragging = false; };
+      handle.onpointercancel = () => { dragging = false; };
+    });
+    card.querySelector('[data-cover-reset]').onclick = () => { c.cover_layout = {logo_x:.5, logo_y:252/842, title_x:.5, title_y:536/842, title_size:26, logo_width:252, title_color:'#1f1f1f'}; showLayout(); scheduleCoverPreview(d.id); };
+    showLayout();
+
 
     const scanArea = card.querySelector('[data-scan-area]'), scanPage = card.querySelector('[data-scan-page]');
     const scanImage = card.querySelector('[data-scan-image]'), scanOverlay = card.querySelector('[data-scan-overlay]');
@@ -1160,6 +1237,8 @@ function runStitchAnimation(doc, config, processPromise) {
 
 $('#processBtn').onclick = async () => {
   if (!state.job) return;
+  const invalid = state.documents.find(d => !d.error && new Set(state.configs[d.id].remove_pages).size >= d.page_count);
+  if (invalid) { toast(`Keep at least one original page in ${invalid.filename}.`); return; }
   $('#processBtn').disabled = true;
   $('#processBtn').textContent = 'Preparing confirmed PDFs…';
   goStep(3);
@@ -1199,7 +1278,7 @@ $('#processBtn').onclick = async () => {
       <div class="result-row">
         <div>
           <strong>${esc(x.filename)}</strong>
-          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}${x.removed_images?.length ? ` · removed ${x.removed_images.length} image object(s)` : ''}${x.reconstructed_page ? ` · reconstructed page ${x.reconstructed_page}; review carefully` : ''}${x.text_verified ? ' · selectable text verified unchanged' : ''}</small>
+          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.cover_added ? ' · cover added' : ''}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.watermarked_pages?.length ? ` · watermark on ${x.watermarked_pages.length} original page(s)` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}${x.removed_images?.length ? ` · removed ${x.removed_images.length} image object(s)` : ''}${x.reconstructed_page ? ` · reconstructed page ${x.reconstructed_page}; review carefully` : ''}${x.text_verified ? ' · selectable text verified unchanged' : ''}</small>
         </div>
         <a class="button primary download-link" href="${x.url}" download="${esc(x.filename)}">Download PDF ↓</a>
       </div>` : `

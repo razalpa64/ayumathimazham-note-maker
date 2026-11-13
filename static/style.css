@@ -2132,3 +2132,12 @@ footer {
 .image-compare .compare-pages figure { margin: 0; min-width: 0; }
 .image-candidate .compare-pages img { width: 100%; height: auto; max-width: none; object-fit: contain; border-radius: 0; }
 .image-compare figcaption { font-size: .8rem; font-weight: 600; }
+
+/* PDF-rendered cover editor */
+.cover-canvas { width: min(100%, 300px); position: relative; aspect-ratio: 595 / 842; background: #eee; touch-action: none; }
+.cover-canvas > img { display: block; width: 100%; height: 100%; }
+.cover-handle { position: absolute; transform: translate(-50%, -50%); cursor: grab; touch-action: none; border: 1px solid white; border-radius: 12px; color: white; background: #51206f; padding: 2px 7px; font-size: 10px; opacity: .82; }
+.cover-handle:focus-visible { outline: 3px solid #e6a723; }
+.cover-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; width: 100%; margin-top: 12px; }
+.cover-controls label { font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.cover-controls input { max-width: 100%; }
