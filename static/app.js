@@ -319,7 +319,9 @@ function initConfigs() {
       watermark_pages: d.pages.filter(p => p.classification.label === 'Study material').map(p => p.number - 1),
       remove_brand_links: false,
       remove_brand_annotations: false,
-      remove_images: []
+      remove_images: [],
+      remove_image_groups: [],
+      add_cover: false
     };
   });
 }
@@ -574,8 +576,8 @@ function docHTML(d) {
     <div class="image-candidate">
       <img src="${im.preview}" alt="Image object preview">
       <div>
-        <label class="checkline"><input type="checkbox" data-remove-image="${i}" ${c.remove_images.includes(im.xref) ? 'checked' : ''}> Remove this image object everywhere it is used</label>
-        <small>Found on pages ${esc(im.pages.join(', '))}. ${esc(im.warning)}</small>
+        <label class="checkline"><input type="checkbox" data-remove-image="${i}" ${c.remove_image_groups.includes(im.xref) ? 'checked' : ''}> Remove matching image object${im.object_count > 1 ? 's' : ''} everywhere used</label>
+        <small>Found on pages ${esc(im.pages.join(', '))} · ${im.object_count} matching object(s). ${esc(im.warning)}</small>
       </div>
     </div>`).join('');
 
@@ -593,6 +595,7 @@ function docHTML(d) {
     <div class="doc-body">
       <div class="doc-layout">
         <div>
+          <label class="checkline"><input type="checkbox" data-add-cover ${c.add_cover ? 'checked' : ''}> Add a new cover page</label>
           <div class="section-title">Cover details & metadata</div>
           <div class="doc-fields">${fields.map(([k, l]) => inputHTML(k, l, f[k] || '')).join('')}</div>
 
@@ -761,7 +764,7 @@ function bindDocs() {
     card.querySelectorAll('[data-remove-image]').forEach(i => {
       i.onchange = () => {
         let x = d.repeated_images[+i.dataset.removeImage].xref;
-        c.remove_images = i.checked ? [...new Set([...c.remove_images, x])] : c.remove_images.filter(t => t !== x);
+        c.remove_image_groups = i.checked ? [...new Set([...c.remove_image_groups, x])] : c.remove_image_groups.filter(t => t !== x);
       };
     });
 
@@ -796,6 +799,7 @@ function bindDocs() {
     if (annotCtrl) annotCtrl.onchange = e => c.remove_brand_annotations = e.target.checked;
 
     card.querySelector('[data-watermark]').onchange = e => c.watermark = e.target.checked;
+    card.querySelector('[data-add-cover]').onchange = e => c.add_cover = e.target.checked;
 
     const scanArea = card.querySelector('[data-scan-area]'), scanPage = card.querySelector('[data-scan-page]');
     const scanImage = card.querySelector('[data-scan-image]'), scanOverlay = card.querySelector('[data-scan-overlay]');
@@ -961,8 +965,9 @@ function runStitchAnimation(doc, config, processPromise) {
   const stepIndicator = $('#stitchStepIndicator');
 
   // Reset visual states
-  coverView.classList.remove('hidden');
-  pageView.classList.add('hidden');
+  coverView.classList.toggle('hidden', !config?.add_cover);
+  pageView.classList.toggle('hidden', !!config?.add_cover);
+  if (!config?.add_cover && pages[0]) pageImg.src = pages[0].preview;
   seal.classList.remove('pop');
   hudTop.classList.remove('active');
   hudCenter.classList.remove('active');
@@ -971,7 +976,7 @@ function runStitchAnimation(doc, config, processPromise) {
   pbarPct.textContent = '0%';
   statPage.textContent = `1 / ${totalPages}`;
   statPurged.textContent = 'Review selections';
-  statWatermark.textContent = 'Active';
+  statWatermark.textContent = config?.watermark ? 'Selected' : 'Off';
 
   let skipped = false;
   const skipBtn = $('#skipStitchBtn');
@@ -989,12 +994,11 @@ function runStitchAnimation(doc, config, processPromise) {
     (async () => {
       try {
         // --- STEP 1: COVER SYNTHESIS (Page 1) ---
-        stepIndicator.textContent = 'SYNTHESIZING COVER (PAGE 1)';
-        pbarText.textContent = 'Synthesizing Scheme Cover…';
+        stepIndicator.textContent = config?.add_cover ? 'PREPARING COVER' : 'PREPARING ORIGINAL PAGES';
+        pbarText.textContent = config?.add_cover ? 'Preparing cover…' : 'Preparing document…';
         pbarFill.style.width = '15%';
         pbarPct.textContent = '15%';
-        logTerminal(`Page 1: Synthesizing Azhumathimayam Cover with Malayalam retina emblem`);
-        logTerminal(`Applied theme banner (${banner}) & interactive URI button`);
+        logTerminal(config?.add_cover ? 'Cover requested.' : 'No cover requested; preserving original document structure where possible.');
         await wait(550);
         if (skipped) return;
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import hashlib
 import json
 import math
 import html
@@ -378,6 +379,52 @@ def qr_on_page(page: fitz.Page, page_index: int, total_pages: int, text: str) ->
     return False
 
 
+def image_fingerprint(doc: fitz.Document, xref: int) -> str | None:
+    """Conservatively match identical encoded images including their soft masks.
+
+    Objects with unusual indirect dependencies are not grouped; matching just the
+    RGB bytes could otherwise merge images with different alpha or decode settings.
+    """
+    try:
+        def image_part(ref: int, allow_smask: bool) -> tuple[bytes, int | None]:
+            obj = doc.xref_object(ref, compressed=True)
+            if doc.xref_get_key(ref, "Subtype") != ("name", "/Image"):
+                raise ValueError()
+            smask_type, smask_val = doc.xref_get_key(ref, "SMask")
+            mask_type, _ = doc.xref_get_key(ref, "Mask")
+            if mask_type != "null" or (smask_type != "null" and (not allow_smask or smask_type != "xref")):
+                raise ValueError()
+            smask = int(smask_val.split()[0]) if smask_type == "xref" else None
+            # Only the soft mask and stream length may be indirect. This avoids
+            # treating different color spaces or other indirect settings as equal.
+            normalized = re.sub(r"/SMask\s+\d+\s+\d+\s+R", "/SMask SOFTMASK", obj)
+            normalized = re.sub(r"/Length\s+(?:\d+\s+\d+\s+R|\d+)", "/Length STREAMLEN", normalized)
+            if re.search(r"\b\d+\s+\d+\s+R\b", normalized):
+                raise ValueError()
+            raw = doc.xref_stream_raw(ref)
+            if raw is None or len(raw) > 12 * 1024 * 1024:
+                raise ValueError()
+            return normalized.encode() + b"\0" + hashlib.sha256(raw).digest(), smask
+        part, mask = image_part(xref, True)
+        if mask:
+            mask_part, _ = image_part(mask, False)
+            part += b"\0" + mask_part
+        return hashlib.sha256(part).hexdigest()
+    except (ValueError, RuntimeError, TypeError, IndexError):
+        return None
+
+
+def image_groups(doc: fitz.Document, occurrences: dict[int, list]) -> list[dict]:
+    grouped = {}
+    for xref, locations in occurrences.items():
+        fingerprint = image_fingerprint(doc, xref)
+        key = fingerprint or f"single:{xref}"
+        group = grouped.setdefault(key, {"xref": xref, "xrefs": [], "placements": []})
+        group["xrefs"].append(xref)
+        group["placements"].extend(locations)
+    return list(grouped.values())
+
+
 def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
     try:
         doc = fitz.open(path)
@@ -467,13 +514,18 @@ def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
                 rects = [[round(r.x0, 1), round(r.y0, 1), round(r.x1, 1), round(r.y1, 1)] for r in page.get_image_rects(xref)]
                 image_occurrences[xref].append({"page": i + 1, "rects": rects})
         repeated_images = []
-        for xref, occurrences in image_occurrences.items():
-            # A full-page scan is likely the notes themselves, not a separate stamp.
-            if all(fitz.Rect(rect).get_area() < doc[o["page"] - 1].rect.get_area() * .5
-                   for o in occurrences for rect in o["rects"]) and any(o["rects"] for o in occurrences):
-                repeated_images.append({"xref": xref, "pages": [x["page"] for x in occurrences],
-                                        "placements": occurrences, "confidence": .35,
-                                        "warning": "Review carefully: every use of this image object will be removed, including on other pages."})
+        for group in image_groups(doc, image_occurrences):
+            occurrences = group["placements"]
+            # Exclude scans or anything also used as a large page image.
+            if not any(o["rects"] for o in occurrences) or not all(
+                fitz.Rect(rect).get_area() < doc[o["page"] - 1].rect.get_area() * .5
+                for o in occurrences for rect in o["rects"]):
+                continue
+            repeated_images.append({"xref": group["xref"], "object_count": len(group["xrefs"]),
+                                    "pages": sorted({o["page"] for o in occurrences if o["rects"]}),
+                                    "placements": occurrences, "confidence": .35,
+                                    "warning": "Review all uses: selecting this removes every matching image object, including on other pages."})
+        repeated_images.sort(key=lambda g: (-len(g["pages"]), -g["object_count"], g["xref"]))
         suggestions = extract_suggestions(doc, pages, filename)
         first = dims[0]
         return {
@@ -757,6 +809,19 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         selected_images = config.get("remove_images", [])
         if not isinstance(selected_images, list): selected_images = []
         selected_images = {int(x) for x in selected_images[:20] if str(x).isdigit() and 0 < int(x) < src.xref_length()}
+        selected_groups = config.get("remove_image_groups", [])
+        if not isinstance(selected_groups, list) or len(selected_groups) > 20:
+            raise ValueError("Select at most 20 image groups.")
+        selected_groups = {int(x) for x in selected_groups if str(x).isdigit() and 0 < int(x) < src.xref_length()}
+        if selected_groups:
+            occurrences = defaultdict(list)
+            for i, page in enumerate(src):
+                for row in page.get_images(full=True):
+                    if row[0] > 0:
+                        occurrences[row[0]].append(i)
+            for group in image_groups(src, occurrences):
+                if selected_groups.intersection(group["xrefs"]):
+                    selected_images.update(group["xrefs"])
         # Map selected source objects to their copied objects by their resource position.
         # Do not match by image bytes: identical bytes can have different masks or uses.
         if config.get("erase_regions"):
@@ -770,19 +835,25 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             reconstruction_page = reconstruction.get("page")
             if type(reconstruction_page) is not int or not 0 <= reconstruction_page < src.page_count or reconstruction_page in remove_pages:
                 raise ValueError("The reconstruction page must be a retained page.")
-        output = fitz.open()
+        include_cover = config.get("add_cover", True) is True
+        preserve_document = not include_cover and not remove_pages and reconstruction_page is None
+        output = fitz.open(original) if preserve_document else fitz.open()
         raw_fields = config.get("fields") if isinstance(config.get("fields"), dict) else {}
         limits = {"title": 180, "course_code": 40, "module": 100, "institution": 120, "scheme": 60, "category": 60, "website": 180, "phone": 32, "email": 80, "subtitle": 150, "tags": 150}
         fields = {k: str(raw_fields.get(k, "") or "").strip()[:limits.get(k, 200)] for k in FIELDS}
         fields["website"] = normalized_url(fields.get("website", "")) or fields.get("website", "")
         
         logo_path = Path(job["logo_path"]) if job.get("logo_path") else (BASE / "static" / "azhumathimayam-logo.png")
-        add_cover(output, fields, logo_path)
-        cover_image_xrefs = {row[0] for row in output[0].get_images(full=True)}
+        if include_cover:
+            add_cover(output, fields, logo_path)
+        cover_image_xrefs = {row[0] for row in output[0].get_images(full=True)} if include_cover else set()
         
         retained_map = []
         for i in range(src.page_count):
             if i in remove_pages:
+                continue
+            if preserve_document:
+                retained_map.append((i, i))
                 continue
             out_index = output.page_count
             if i == reconstruction_page:
@@ -957,18 +1028,22 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             out_path = download_dir / f"Azhumathimayam_{topic}_{suffix}_Notes.pdf"
             suffix += 1
             
-        output.set_metadata({
-            "title": fields.get("title") or "Azhumathimayam Notes",
-            "author": "Azhumathimayam · INVYTRA",
-            "subject": fields.get("category") or "Study Notes",
-            "creator": "Azhumathimayam Note Maker"
-        })
+        if include_cover:
+            output.set_metadata({
+                "title": fields.get("title") or "Azhumathimayam Notes",
+                "author": "Azhumathimayam · INVYTRA",
+                "subject": fields.get("category") or "Study Notes",
+                "creator": "Azhumathimayam Note Maker"
+            })
+        elif not preserve_document:
+            output.set_metadata({k: v or "" for k, v in src.metadata.items()
+                                 if k in ("title", "author", "subject", "keywords", "creator", "producer", "creationDate", "modDate", "trapped")})
         output.save(out_path, garbage=3, deflate=True)
         output.close()
         src.close()
         
         # Soft verification (never abort valid prepared PDFs)
-        final_pages = 1 + (pdf_info["page_count"] - len(remove_pages))
+        final_pages = int(include_cover) + (pdf_info["page_count"] - len(remove_pages))
         try:
             chk = fitz.open(out_path)
             final_pages = chk.page_count
@@ -1241,6 +1316,13 @@ def image_preview(job_id, doc_id, xref):
         extracted = source.extract_image(xref)
         if not extracted or len(extracted.get("image", b"")) > 12 * 1024 * 1024:
             abort(404)
+        if extracted.get("smask"):
+            pix = fitz.Pixmap(source, xref)
+            if pix.colorspace and pix.colorspace.n != 3:
+                pix = fitz.Pixmap(fitz.csRGB, pix)
+            mask = fitz.Pixmap(source, extracted["smask"])
+            pix = fitz.Pixmap(pix, mask)
+            return app.response_class(pix.tobytes("png"), mimetype="image/png", headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
         ext = extracted.get("ext", "png").lower()
         mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "bmp": "image/bmp", "gif": "image/gif", "webp": "image/webp", "jpx": "image/jp2"}.get(ext)
         if mime is None:
