@@ -106,3 +106,6 @@ This repository is configured out-of-the-box for Vercel using `vercel.json` and 
 ## License
 
 MIT License. Designed with care for students and educators.
+
+### Fixed or flattened branding
+In each document's review panel, use **Remove fixed or flattened branding**. Choose a preview page and drag a rectangle over the mark. Optionally apply subsequent selections to all retained pages in the same relative position; remove unwanted selections before processing. This is destructive area redaction, not image reconstruction: it whites out scanned pixels and removes intersecting text and some vector objects, including useful content. Different page layouts may need separate selections. Check the resulting PDF; originals remain unchanged. Only edit documents you have permission to modify.

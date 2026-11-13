@@ -327,7 +327,8 @@ function initConfigs() {
       watermark_pages: d.pages.filter(p => p.classification.label === 'Study material').map(p => p.number - 1),
       remove_brand_links: true,
       remove_brand_annotations: true,
-      remove_images: []
+      remove_images: [],
+      erase_regions: []
     };
   });
 }
@@ -628,6 +629,14 @@ function docHTML(d) {
             <input type="checkbox" data-watermark ${c.watermark ? 'checked' : ''}> Add subtle watermark behind text on retained study pages
           </label>
           ${imageSection}
+          <div class="brain-box">
+            <h4>Remove fixed or flattened branding</h4>
+            <p class="muted">Select a page and drag over the mark. The area is erased with a white box, including any notes or images underneath; overlapping vector shapes may also disappear. Review the output. Original files are unchanged.</p>
+            <label>Preview page <select data-region-page>${pages.map(p => `<option value="${p.number - 1}">Page ${p.number}</option>`).join('')}</select></label>
+            <label class="checkline"><input type="checkbox" data-region-all> Apply new selections to all retained pages at the same relative position</label>
+            <div class="region-preview" data-region-preview><img data-region-image src="${esc(pages[0]?.preview || '')}" alt="Page preview for selecting a fixed watermark"><div data-region-overlay></div></div>
+            <div data-region-list></div>
+          </div>
           ${warnings}
         </div>
 
@@ -790,6 +799,38 @@ function bindDocs() {
 
     card.querySelector('[data-watermark]').onchange = e => c.watermark = e.target.checked;
 
+    const preview = card.querySelector('[data-region-preview]');
+    const image = card.querySelector('[data-region-image]');
+    const overlay = card.querySelector('[data-region-overlay]');
+    const pageSelect = card.querySelector('[data-region-page]');
+    const list = card.querySelector('[data-region-list]');
+    const drawRegions = () => {
+      overlay.innerHTML = '';
+      c.erase_regions.forEach((r, i) => {
+        if (r.page !== null && r.page !== +pageSelect.value) return;
+        const box = document.createElement('div');
+        box.className = 'region-box';
+        Object.assign(box.style, {left: `${r.x0 * 100}%`, top: `${r.y0 * 100}%`, width: `${(r.x1-r.x0)*100}%`, height: `${(r.y1-r.y0)*100}%`});
+        overlay.appendChild(box);
+      });
+      list.innerHTML = c.erase_regions.map((r, i) => `<div>Selection ${i+1} · ${r.page === null ? 'all retained pages' : `page ${r.page+1}`} <button type="button" data-delete-region="${i}">Remove selection</button></div>`).join('');
+      list.querySelectorAll('[data-delete-region]').forEach(b => b.onclick = () => { c.erase_regions.splice(+b.dataset.deleteRegion, 1); drawRegions(); });
+    };
+    pageSelect.onchange = () => { image.src = d.pages[+pageSelect.value].preview; drawRegions(); };
+    let start = null;
+    const point = e => { const b = preview.getBoundingClientRect(); return [Math.max(0, Math.min  (1, (e.clientX-b.left)/b.width)), Math.max(0, Math.min(1, (e.clientY-b.top)/b.height))]; };
+    preview.onpointerdown = e => { e.preventDefault(); start = point(e); preview.setPointerCapture(e.pointerId); };
+    preview.onpointerup = e => {
+      if (!start) return;
+      const end = point(e), x0 = Math.min(start[0],end[0]), x1 = Math.max(start[0],end[0]), y0 = Math.min(start[1],end[1]), y1 = Math.max(start[1],end[1]);
+      start = null;
+      if (x1-x0 < .005 || y1-y0 < .005) return;
+      if (c.erase_regions.length >= 20) { toast('Maximum 20 selections per document'); return; }
+      c.erase_regions.push({x0, y0, x1, y1, page: card.querySelector('[data-region-all]').checked ? null : +pageSelect.value});
+      drawRegions();
+    };
+    preview.onpointercancel = () => { start = null; };
+    drawRegions();
     syncCover(d.id);
   });
 }
