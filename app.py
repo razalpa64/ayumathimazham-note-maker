@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import html
 import os
 import re
@@ -676,6 +677,70 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
         centered(tags, 816.0, 7.5, font_sans, (0.48, 0.45, 0.44), 520, max_lines=1)
 
 
+def reconstruct_scan(page: fitz.Page, settings: dict) -> bytes:
+    """Experimental color-based reconstruction; only isolated image-only scans are eligible."""
+    import cv2
+    import numpy as np
+
+    if not isinstance(settings, dict):
+        raise ValueError("Invalid reconstruction settings.")
+    try:
+        box = [float(settings[k]) for k in ("x0", "y0", "x1", "y1")]
+        color = settings["color"]
+        tolerance = int(settings["tolerance"])
+        if (not all(math.isfinite(n) and 0 <= n <= 1 for n in box)
+                or box[0] >= box[2] or box[1] >= box[3]
+                or not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color)
+                or not 1 <= tolerance <= 100):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise ValueError("Invalid reconstruction area, color, or tolerance.")
+    # Refuse mixed PDFs rather than discarding selectable text, links or graphics.
+    imgs = page.get_image_info(xrefs=True)
+    if (len(imgs) != 1 or not imgs[0].get("xref") or page.get_text().strip()
+            or page.get_drawings() or page.get_links() or list(page.annots() or [])
+            or list(page.widgets() or [])):
+        raise ValueError("Reconstruction is limited to pages containing only one full-page scan, without text, drawings, links, annotations or form fields.")
+    image_rect = fitz.Rect(imgs[0]["bbox"]) * page.rotation_matrix
+    if not image_rect.contains(page.rect + (1, 1, -1, -1)):
+        raise ValueError("Reconstruction requires a full-page scan image.")
+    scale = min(2.0, 3000.0 / max(page.rect.width, page.rect.height))
+    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), colorspace=fitz.csRGB, alpha=False)
+    image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
+    x0, y0 = int(box[0] * pix.width), int(box[1] * pix.height)
+    x1, y1 = min(pix.width, math.ceil(box[2] * pix.width)), min(pix.height, math.ceil(box[3] * pix.height))
+    target = np.array([int(color[i:i+2], 16) for i in (1, 3, 5)], dtype=np.int16)
+    area = image[y0:y1, x0:x1].astype(np.int16)
+    distance = np.max(np.abs(area - target), axis=2)
+    mask = np.zeros((pix.height, pix.width), dtype=np.uint8)
+    mask[y0:y1, x0:x1] = (distance <= tolerance).astype(np.uint8) * 255
+    count = int(np.count_nonzero(mask))
+    if count == 0:
+        raise ValueError("No pixels match that color. Choose another color or tolerance.")
+    if count > pix.width * pix.height * .25:
+        raise ValueError("Too much of the page matches this color. Narrow the selection or lower tolerance.")
+    result = cv2.inpaint(image, mask, 3, cv2.INPAINT_TELEA)
+    from PIL import Image
+    data = io.BytesIO()
+    Image.fromarray(result).save(data, format="PNG")
+    return data.getvalue()
+
+
+@app.post("/api/reconstruct-preview/<job_id>/<doc_id>/<int:page_no>")
+def reconstruct_preview(job_id, doc_id, page_no):
+    job = get_job_state(job_id)
+    if not job or doc_id not in job.get("files", {}):
+        abort(404)
+    try:
+        with fitz.open(job["files"][doc_id]["path"]) as doc:
+            if not 0 <= page_no < doc.page_count:
+                abort(404)
+            png = reconstruct_scan(doc[page_no], request.get_json(silent=True))
+        return app.response_class(png, mimetype="image/png", headers={"Cache-Control": "no-store"})
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
 def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     original = Path(pdf_info["path"])
     try:
@@ -697,6 +762,14 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         if config.get("erase_regions"):
             raise ValueError("Area erasing is disabled to protect page content. Select a separate image object instead.")
 
+        reconstruction = config.get("scan_reconstruction")
+        reconstruction_page = None
+        if reconstruction is not None:
+            if not isinstance(reconstruction, dict) or reconstruction.get("approved") is not True:
+                raise ValueError("Preview and approve reconstruction before processing.")
+            reconstruction_page = reconstruction.get("page")
+            if type(reconstruction_page) is not int or not 0 <= reconstruction_page < src.page_count or reconstruction_page in remove_pages:
+                raise ValueError("The reconstruction page must be a retained page.")
         output = fitz.open()
         raw_fields = config.get("fields") if isinstance(config.get("fields"), dict) else {}
         limits = {"title": 180, "course_code": 40, "module": 100, "institution": 120, "scheme": 60, "category": 60, "website": 180, "phone": 32, "email": 80, "subtitle": 150, "tags": 150}
@@ -712,7 +785,13 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             if i in remove_pages:
                 continue
             out_index = output.page_count
-            output.insert_pdf(src, from_page=i, to_page=i, links=True, annots=True, widgets=True)
+            if i == reconstruction_page:
+                source_page = src[i]
+                png = reconstruct_scan(source_page, reconstruction)
+                replacement = output.new_page(width=source_page.rect.width, height=source_page.rect.height)
+                replacement.insert_image(replacement.rect, stream=png)
+            else:
+                output.insert_pdf(src, from_page=i, to_page=i, links=True, annots=True, widgets=True)
             retained_map.append((i, out_index))
             
         raw_marks = config.get("remove_texts", [])
@@ -730,7 +809,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         
         for src_idx, out_idx in retained_map:
             page = output[out_idx]
-            if selected_images:
+            if selected_images and src_idx != reconstruction_page:
                 source_rows = src[src_idx].get_images(full=True)
                 output_rows = page.get_images(full=True)
                 if len(source_rows) != len(output_rows):
@@ -904,6 +983,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
             "removed_pages": [x + 1 for x in sorted(remove_pages)],
             "removed_text": removal_report,
             "removed_images": image_removal_report,
+            "reconstructed_page": reconstruction_page + 1 if reconstruction_page is not None else None,
             "verified": True,
             "size": out_path.stat().st_size if out_path.exists() else 0
         }
