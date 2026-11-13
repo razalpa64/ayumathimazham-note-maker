@@ -86,12 +86,11 @@
         <div>
           <div class="eyebrow">STAGE 02 · REVIEW EVERY FILE</div>
           <h2>Fine-tune decisions & covers</h2>
-          <p class="muted">Check suggested titles, academic scheme, and page removals. Use Smart Auto-Clean to prepare in one
-            click.</p>
+          <p class="muted">Review suggested details and choose any removals explicitly.</p>
         </div>
         <div class="toolbar-actions">
           <button class="button secondary" id="autoCleanBtn"
-            title="Auto-select promo pages and apply recommended defaults">⚡ Smart Auto-Clean</button>
+            title="Fill missing cover details from suggestions">⚡ Apply cover suggestions</button>
           <button class="button ghost" id="newBatch">＋ New batch</button>
         </div>
       </div>
@@ -230,7 +229,7 @@
         <summary>Remembered watermark rules <span>Optional, editable memory on this device</span></summary>
         <div class="rules-content">
           <p>Save exact text you recognize as old watermarks or branding (e.g. old Telegram channels, website URLs).
-            Matching suggestions will be pre-checked for your review.</p>
+            Matching suggestions will be highlighted for your review.</p>
           <div class="rules-row">
             <input id="ruleInput" placeholder="e.g. @telegram_channel or oldsite.com">
             <button class="button secondary" id="addRule">Remember text</button>
@@ -294,7 +293,7 @@
                   <!-- Real HUD Action Overlays -->
                   <div class="stitch-hud-stamp top" id="stitchHudTop">
                     <span class="hud-icon">✂</span>
-                    <span class="hud-text">HEADER WATERMARK PURGED</span>
+                    <span class="hud-text">PAGE PREVIEW</span>
                   </div>
                   <div class="stitch-hud-stamp center" id="stitchHudCenter">
                     <span class="hud-icon">🛡</span>
@@ -309,7 +308,7 @@
                 <!-- Verified Badge Stamp Overlay -->
                 <div class="stitch-seal" id="stitchSeal">
                   <div class="stitch-seal-icon">✓</div>
-                  <div class="stitch-seal-text">VERIFIED &amp; CLEANED</div>
+                  <div class="stitch-seal-text">REVIEW OUTPUT</div>
                 </div>
               </div>
 
@@ -336,7 +335,7 @@
               </div>
               <div class="stitch-hud-stat">
                 <span class="hud-k">WATERMARKS</span>
-                <b id="stitchStatPurged" class="hud-v">0 purged</b>
+                <b id="stitchStatPurged" class="hud-v">0 selected</b>
               </div>
               <div class="stitch-hud-stat">
                 <span class="hud-k">PROTECTION</span>

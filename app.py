@@ -3,8 +3,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import math
-import hashlib
 import html
 import os
 import re
@@ -469,10 +467,12 @@ def analyze_pdf(path: Path, doc_id: str, filename: str) -> dict[str, Any]:
                 image_occurrences[xref].append({"page": i + 1, "rects": rects})
         repeated_images = []
         for xref, occurrences in image_occurrences.items():
-            if len(occurrences) >= 2:
+            # A full-page scan is likely the notes themselves, not a separate stamp.
+            if all(fitz.Rect(rect).get_area() < doc[o["page"] - 1].rect.get_area() * .5
+                   for o in occurrences for rect in o["rects"]) and any(o["rects"] for o in occurrences):
                 repeated_images.append({"xref": xref, "pages": [x["page"] for x in occurrences],
                                         "placements": occurrences, "confidence": .35,
-                                        "warning": "Repeated image object: check thumbnail before removing."})
+                                        "warning": "Review carefully: every use of this image object will be removed, including on other pages."})
         suggestions = extract_suggestions(doc, pages, filename)
         first = dims[0]
         return {
@@ -692,15 +692,11 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         selected_images = config.get("remove_images", [])
         if not isinstance(selected_images, list): selected_images = []
         selected_images = {int(x) for x in selected_images[:20] if str(x).isdigit() and 0 < int(x) < src.xref_length()}
-        selected_image_hashes = set()
-        for source_xref in selected_images:
-            try:
-                image_data = src.extract_image(source_xref)
-                if image_data and image_data.get("image"):
-                    selected_image_hashes.add(hashlib.sha256(image_data["image"]).hexdigest())
-            except Exception:
-                continue
-                
+        # Map selected source objects to their copied objects by their resource position.
+        # Do not match by image bytes: identical bytes can have different masks or uses.
+        if config.get("erase_regions"):
+            raise ValueError("Area erasing is disabled to protect page content. Select a separate image object instead.")
+
         output = fitz.open()
         raw_fields = config.get("fields") if isinstance(config.get("fields"), dict) else {}
         limits = {"title": 180, "course_code": 40, "module": 100, "institution": 120, "scheme": 60, "category": 60, "website": 180, "phone": 32, "email": 80, "subtitle": 150, "tags": 150}
@@ -723,23 +719,6 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         if not isinstance(raw_marks, list): raw_marks = []
         exact_marks = list(dict.fromkeys(str(x).strip()[:140] for x in raw_marks[:50] if str(x).strip()))
         
-        # Rectangles are normalized to the displayed (possibly rotated) page.
-        raw_regions = config.get("erase_regions", [])
-        if not isinstance(raw_regions, list) or len(raw_regions) > 20:
-            raise ValueError("At most 20 fixed watermark regions are allowed.")
-        erase_regions = []
-        for region in raw_regions:
-            try:
-                coords = [float(region[k]) for k in ("x0", "y0", "x1", "y1")]
-                region_page = region.get("page")
-                if (not all(math.isfinite(v) and 0 <= v <= 1 for v in coords)
-                        or coords[0] >= coords[2] or coords[1] >= coords[3]
-                        or (region_page is not None and (type(region_page) is not int or not 0 <= region_page < src.page_count))):
-                    raise ValueError()
-                erase_regions.append((coords, region_page))
-            except (ValueError, TypeError, KeyError, AttributeError):
-                raise ValueError("Invalid fixed watermark region.")
-
         raw_watermark_pages = config.get("watermark_pages", [])
         if not isinstance(raw_watermark_pages, list): raw_watermark_pages = []
         watermark_pages = {int(x) for x in raw_watermark_pages[:MAX_PAGES] if str(x).isdigit()}
@@ -751,42 +730,24 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
         
         for src_idx, out_idx in retained_map:
             page = output[out_idx]
-            if selected_image_hashes:
-                for image_row in list(page.get_images(full=True)):
-                    out_xref = image_row[0]
-                    if out_xref in cover_image_xrefs or out_xref in deleted_output_xrefs:
+            if selected_images:
+                source_rows = src[src_idx].get_images(full=True)
+                output_rows = page.get_images(full=True)
+                if len(source_rows) != len(output_rows):
+                    raise ValueError("Could not safely map image objects in this PDF. No output was produced.")
+                for source_row, output_row in zip(source_rows, output_rows):
+                    if source_row[0] not in selected_images:
                         continue
-                    try:
-                        out_image = output.extract_image(out_xref)
-                        digest = hashlib.sha256(out_image["image"]).hexdigest() if out_image else ""
-                    except Exception:
-                        digest = ""
-                    if digest in selected_image_hashes:
+                    out_xref = output_row[0]
+                    if out_xref in cover_image_xrefs:
+                        raise ValueError("Selected image is shared with the cover; cannot safely remove it.")
+                    if out_xref not in deleted_output_xrefs:
                         page.delete_image(out_xref)
                         deleted_output_xrefs.add(out_xref)
                         image_removal_report.append({"page": src_idx + 1, "object": out_xref})
-            # 2. Automatically detect and strip third-party headers, footers & brand watermarks
-            header_limit = min(78.0, page.rect.height * 0.12)
-            footer_limit = max(page.rect.height - 72.0, page.rect.height * 0.88)
-            try:
-                blocks = page.get_text("blocks")
-                for block in blocks:
-                    bx0, by0, bx1, by1, btext, bno, btype = block[:7]
-                    if btype != 0:
-                        continue
-                    in_header_footer = (by1 <= header_limit) or (by0 >= footer_limit)
-                    if is_third_party_brand(btext) or (in_header_footer and is_third_party_brand(btext)):
-                        clean_b = re.sub(r"\s+", " ", btext).strip()
-                        # Do not redact solitary page numbers
-                        if re.fullmatch(r"(?i)(?:page\s*)?\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?", clean_b):
-                            continue
-                        rect = fitz.Rect(bx0, by0, bx1, by1)
-                        page.add_redact_annot(rect, fill=None, cross_out=False)
-                        removal_report.append({"text": clean_b[:80], "page": src_idx + 1, "removed": 1})
-            except Exception:
-                pass
 
             # 3. User configured exact marks or suggestions
+            page_has_marks = False
             for mark in exact_marks:
                 if not mark or len(mark) < 3:
                     continue
@@ -795,30 +756,18 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
                     if rects:
                         for rect in rects:
                             page.add_redact_annot(rect, fill=None, cross_out=False)
+                            page_has_marks = True
                         removal_report.append({"text": mark, "page": src_idx + 1, "removed": len(rects)})
                 except Exception:
                     pass
 
             # Apply all redactions cleanly at vector level
-            try:
+            if page_has_marks:
                 page.apply_redactions(images=0, graphics=0, text=0)
-            except Exception:
-                pass
-
-            # Explicit, destructive area removal also handles flattened scans and vector art.
-            for coords, region_page in erase_regions:
-                if region_page is not None and region_page != src_idx:
-                    continue
-                r = page.rect
-                visible = fitz.Rect(r.x0 + coords[0] * r.width, r.y0 + coords[1] * r.height,
-                                    r.x0 + coords[2] * r.width, r.y0 + coords[3] * r.height)
-                page.add_redact_annot(visible * page.derotation_matrix, fill=(1, 1, 1), cross_out=False)
-            if any(region_page is None or region_page == src_idx for _, region_page in erase_regions):
-                page.apply_redactions(images=2, graphics=1, text=0)
 
             # 4. Remove all third-party external links (keep internal and invytra links)
             try:
-                for link in list(page.get_links()):
+                for link in list(page.get_links()) if config.get("remove_brand_links") is True else []:
                     uri = (link.get("uri") or "").lower()
                     if uri:
                         if "azhumathimayam" in uri or "invytra" in uri:
@@ -829,7 +778,7 @@ def process_one(job: dict[str, Any], pdf_info: dict[str, Any], config: dict[str,
 
             # 5. Remove third-party annotations
             try:
-                for annot in list(page.annots() or []):
+                for annot in list(page.annots() or []) if config.get("remove_brand_annotations") is True else []:
                     info = annot.info or {}
                     desc = " ".join(str(info.get(k, "")) for k in ("content", "title", "subject", "name")).lower()
                     if is_third_party_brand(desc) or any(term in desc for term in ("t.me", "telegram", "whatsapp", "www.", "http", "@", ".com", ".in", "download")):

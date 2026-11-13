@@ -309,26 +309,17 @@ function initConfigs() {
       }
     });
 
-    // Automatically pre-select all detected 3rd-party candidate watermarks and remembered rules
-    let autoTexts = (d.text_candidates || []).map(x => x.text);
-
-    // Auto-detect promo pages for removal
-    let autoRemovePages = d.pages
-      .filter(p => ['Possible branded cover', 'Promotional page', 'QR / contact page'].includes(p.classification.label))
-      .map(p => p.number - 1);
-
     state.configs[d.id] = {
       fields: f,
-      remove_pages: autoRemovePages,
-      remove_texts: autoTexts,
+      remove_pages: [],
+      remove_texts: [],
       manual_mark: '',
       manual_include: false,
-      watermark: true,
+      watermark: false,
       watermark_pages: d.pages.filter(p => p.classification.label === 'Study material').map(p => p.number - 1),
-      remove_brand_links: true,
-      remove_brand_annotations: true,
-      remove_images: [],
-      erase_regions: []
+      remove_brand_links: false,
+      remove_brand_annotations: false,
+      remove_images: []
     };
   });
 }
@@ -574,21 +565,21 @@ function docHTML(d) {
   let canText = detected.map((x, i) => {
     let remembered = candidateRules.some(r => x.text.toLowerCase().includes(r));
     return `<label class="candidate">
-      <input type="checkbox" data-remove-text="${i}" ${c.remove_texts.includes(x.text) || remembered ? 'checked' : ''}>
+      <input type="checkbox" data-remove-text="${i}" ${c.remove_texts.includes(x.text) ? 'checked' : ''}>
       <span><b>${esc(x.text)}</b><br>${esc(x.kind)} · pages ${esc(x.pages.join(', '))} · ${Math.round(x.confidence * 100)}% confidence${remembered ? ' · matched rule' : ''}</span>
     </label>`;
   }).join('');
 
   let imageCandidates = (d.repeated_images || []).map((im, i) => `
     <div class="image-candidate">
-      <img src="${im.preview}" alt="Repeated image preview">
+      <img src="${im.preview}" alt="Image object preview">
       <div>
-        <label class="checkline"><input type="checkbox" data-remove-image="${i}" ${c.remove_images.includes(im.xref) ? 'checked' : ''}> Remove this exact image object</label>
+        <label class="checkline"><input type="checkbox" data-remove-image="${i}" ${c.remove_images.includes(im.xref) ? 'checked' : ''}> Remove this image object everywhere it is used</label>
         <small>Found on pages ${esc(im.pages.join(', '))}. ${esc(im.warning)}</small>
       </div>
     </div>`).join('');
 
-  let imageSection = imageCandidates ? `<div class="brain-box"><h4>Repeated image objects</h4><p class="muted">Check thumbnails before removing.</p>${imageCandidates}</div>` : '';
+  let imageSection = imageCandidates ? `<div class="brain-box"><h4>Possible separate image watermarks</h4><p class="muted">Review each image and all page uses before selecting it. Removing the image leaves other page objects in place. It is not guaranteed to be a watermark.</p>${imageCandidates}</div>` : '';
   let warnings = (d.warnings || []).map(x => `<div class="warning">${esc(x)}</div>`).join('');
 
   return `<article class="doc-card" data-doc="${d.id}">
@@ -609,7 +600,7 @@ function docHTML(d) {
           <div class="pages-list">${pageRows}</div>
 
           <div class="brain-box">
-            <h4>Detected old watermarks & text marks</h4>
+            <h4>Detected old watermarks & text marks</h4><p class="muted">Text removal can also erase overlapping text. Select only after reviewing; use separate image objects below when possible.</p>
             ${canText || '<div class="muted">No recurring selectable watermark text detected.</div>'}
             <div class="field" style="margin-top:10px">
               <label>Other exact brand text to erase</label>
@@ -630,12 +621,8 @@ function docHTML(d) {
           </label>
           ${imageSection}
           <div class="brain-box">
-            <h4>Remove fixed or flattened branding</h4>
-            <p class="muted">Select a page and drag over the mark. The area is erased with a white box, including any notes or images underneath; overlapping vector shapes may also disappear. Review the output. Original files are unchanged.</p>
-            <label>Preview page <select data-region-page>${pages.map(p => `<option value="${p.number - 1}">Page ${p.number}</option>`).join('')}</select></label>
-            <label class="checkline"><input type="checkbox" data-region-all> Apply new selections to all retained pages at the same relative position</label>
-            <div class="region-preview" data-region-preview><img data-region-image src="${esc(pages[0]?.preview || '')}" alt="Page preview for selecting a fixed watermark"><div data-region-overlay></div></div>
-            <div data-region-list></div>
+            <h4>Content-preserving watermark removal</h4>
+            <p class="muted">Select a separate image watermark above after checking its thumbnail and pages. If the mark is baked into a scan, outlined as graphics, or overlaps other text, it cannot be reliably separated without risking content. We leave it unchanged rather than guessing. For the best result, use an unwatermarked original.</p>
           </div>
           ${warnings}
         </div>
@@ -799,64 +786,14 @@ function bindDocs() {
 
     card.querySelector('[data-watermark]').onchange = e => c.watermark = e.target.checked;
 
-    const preview = card.querySelector('[data-region-preview]');
-    const image = card.querySelector('[data-region-image]');
-    const overlay = card.querySelector('[data-region-overlay]');
-    const pageSelect = card.querySelector('[data-region-page]');
-    const list = card.querySelector('[data-region-list]');
-    const drawRegions = () => {
-      overlay.innerHTML = '';
-      c.erase_regions.forEach((r, i) => {
-        if (r.page !== null && r.page !== +pageSelect.value) return;
-        const box = document.createElement('div');
-        box.className = 'region-box';
-        Object.assign(box.style, {left: `${r.x0 * 100}%`, top: `${r.y0 * 100}%`, width: `${(r.x1-r.x0)*100}%`, height: `${(r.y1-r.y0)*100}%`});
-        overlay.appendChild(box);
-      });
-      list.innerHTML = c.erase_regions.map((r, i) => `<div>Selection ${i+1} · ${r.page === null ? 'all retained pages' : `page ${r.page+1}`} <button type="button" data-delete-region="${i}">Remove selection</button></div>`).join('');
-      list.querySelectorAll('[data-delete-region]').forEach(b => b.onclick = () => { c.erase_regions.splice(+b.dataset.deleteRegion, 1); drawRegions(); });
-    };
-    pageSelect.onchange = () => { image.src = d.pages[+pageSelect.value].preview; drawRegions(); };
-    let start = null;
-    const point = e => { const b = preview.getBoundingClientRect(); return [Math.max(0, Math.min  (1, (e.clientX-b.left)/b.width)), Math.max(0, Math.min(1, (e.clientY-b.top)/b.height))]; };
-    preview.onpointerdown = e => { e.preventDefault(); start = point(e); preview.setPointerCapture(e.pointerId); };
-    preview.onpointerup = e => {
-      if (!start) return;
-      const end = point(e), x0 = Math.min(start[0],end[0]), x1 = Math.max(start[0],end[0]), y0 = Math.min(start[1],end[1]), y1 = Math.max(start[1],end[1]);
-      start = null;
-      if (x1-x0 < .005 || y1-y0 < .005) return;
-      if (c.erase_regions.length >= 20) { toast('Maximum 20 selections per document'); return; }
-      c.erase_regions.push({x0, y0, x1, y1, page: card.querySelector('[data-region-all]').checked ? null : +pageSelect.value});
-      drawRegions();
-    };
-    preview.onpointercancel = () => { start = null; };
-    drawRegions();
     syncCover(d.id);
   });
 }
 
 // ⚡ Smart Auto-Clean button handler
 $('#autoCleanBtn').onclick = () => {
-  let promoCount = 0;
   state.documents.filter(d => !d.error).forEach(d => {
     const c = state.configs[d.id];
-    // Auto-select promo/ad boundary pages for removal
-    d.pages.forEach(p => {
-      if (['Possible branded cover', 'Promotional page', 'QR / contact page'].includes(p.classification.label)) {
-        if (!c.remove_pages.includes(p.number - 1)) {
-          c.remove_pages.push(p.number - 1);
-          promoCount++;
-        }
-      }
-    });
-
-    // Auto-select detected old-brand text
-    (d.text_candidates || []).forEach(tc => {
-      if (!c.remove_texts.includes(tc.text)) {
-        c.remove_texts.push(tc.text);
-      }
-    });
-
     // Apply suggestions if blank
     const s = d.suggestions || {};
     if (!c.fields.title && s.title) c.fields.title = s.title;
@@ -864,11 +801,10 @@ $('#autoCleanBtn').onclick = () => {
     if (!c.fields.scheme && s.scheme) c.fields.scheme = s.scheme;
     if (!c.fields.category && s.category) c.fields.category = s.category;
     if (!c.fields.tags && s.tags) c.fields.tags = s.tags;
-    c.remove_brand_links = true;
   });
 
   renderDocs();
-  toast(`⚡ Smart Auto-Clean: marked ${promoCount} promo page(s) and applied recommended defaults.`);
+  toast('Suggested cover details applied. Review watermark candidates before removing anything.');
 };
 
 function paintProgress(data) {
@@ -982,7 +918,7 @@ function runStitchAnimation(doc, config, processPromise) {
   pbarFill.style.width = '0%';
   pbarPct.textContent = '0%';
   statPage.textContent = `1 / ${totalPages}`;
-  statPurged.textContent = '0 purged';
+  statPurged.textContent = 'Review selections';
   statWatermark.textContent = 'Active';
 
   let skipped = false;
@@ -1015,7 +951,6 @@ function runStitchAnimation(doc, config, processPromise) {
         if (p1Pill) { p1Pill.classList.remove('active'); p1Pill.classList.add('done'); }
 
         // --- STEP 2+: CYCLE THROUGH SUBSEQUENT ACTUAL PAGES ---
-        let purgedTotal = 0;
         const maxPagesToAnimate = Math.min(totalPages, 6);
 
         for (let p = 2; p <= maxPagesToAnimate; p++) {
@@ -1035,7 +970,7 @@ function runStitchAnimation(doc, config, processPromise) {
           const currentPercent = Math.min(92, Math.round((p / totalPages) * 85) + 15);
           pbarFill.style.width = `${currentPercent}%`;
           pbarPct.textContent = `${currentPercent}%`;
-          pbarText.textContent = `Inspecting & cleansing Page ${p}…`;
+          pbarText.textContent = `Preparing Page ${p}…`;
 
           // Activate filmstrip pill
           const curPill = $(`#filmPill-${p}`);
@@ -1047,19 +982,17 @@ function runStitchAnimation(doc, config, processPromise) {
 
           // Pop HUD badges simulating laser scan operations
           hudTop.classList.add('active');
-          purgedTotal += 1;
-          statPurged.textContent = `${purgedTotal} purged`;
-          logTerminal(`Page ${p}: Removed header promotion and link markers.`, 'success');
+          logTerminal(`Page ${p}: Preparing selected changes.`);
           await wait(280);
           if (skipped) break;
 
           const wmType = (f.watermark_type || 'text').toLowerCase();
           const wmLabel = wmType === 'image' ? 'Image Stamp' : (f.watermark_text || 'അഴിമതി മയം');
           const wmCenterText = hudCenter.querySelector('.hud-text');
-          if (wmCenterText) wmCenterText.textContent = `${wmLabel.slice(0, 22)} STAMPED UNDER TEXT`;
+          if (wmCenterText) wmCenterText.textContent = config?.watermark ? `${wmLabel.slice(0, 22)} SELECTED` : 'NO NEW WATERMARK';
           hudCenter.classList.add('active');
-          statWatermark.textContent = 'Under Text ✓';
-          logTerminal(`Page ${p}: Stamped ${wmLabel} behind study notes text (overlay=False)`);
+          statWatermark.textContent = config?.watermark ? 'Selected' : 'Off';
+          logTerminal(`Page ${p}: Watermark option ${config?.watermark ? "enabled" : "off"}.`);
           await wait(280);
           if (skipped) break;
 
@@ -1081,11 +1014,11 @@ function runStitchAnimation(doc, config, processPromise) {
         // --- FINAL WRAP-UP STEP ---
         pbarFill.style.width = '100%';
         pbarPct.textContent = '100%';
-        pbarText.textContent = 'All pages cleaned & verified ✓';
-        stepIndicator.textContent = 'VERIFIED 100%';
-        statWatermark.textContent = 'Protected ✓';
+        pbarText.textContent = 'Preparing output…';
+        stepIndicator.textContent = 'REVIEW OUTPUT';
+        statWatermark.textContent = config?.watermark ? 'Selected' : 'Off';
         seal.classList.add('pop');
-        logTerminal(`Lossless deflation complete. Output ready for instant download.`, 'success');
+        logTerminal(`Waiting for processing result.`, 'success');
         await wait(350);
 
       } catch (err) {
@@ -1153,7 +1086,7 @@ $('#processBtn').onclick = async () => {
       <div class="result-row">
         <div>
           <strong>${esc(x.filename)}</strong>
-          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}</small>
+          <small>${x.pages} pages · ${x.size < 1024 * 1024 ? Math.round(x.size / 1024) + ' KB' : (x.size / 1024 / 1024).toFixed(1) + ' MB'}${x.removed_pages.length ? ` · removed old page(s) ${x.removed_pages.join(', ')}` : ''}${x.removed_text?.length ? ` · erased ${x.removed_text.length} old marks` : ''}${x.removed_images?.length ? ` · removed ${x.removed_images.length} image object(s)` : ''}</small>
         </div>
         <a class="button primary download-link" href="${x.url}" download="${esc(x.filename)}">Download PDF ↓</a>
       </div>` : `
