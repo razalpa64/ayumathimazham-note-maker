@@ -745,7 +745,80 @@ def add_cover(doc: fitz.Document, fields: dict[str, str], logo_path: Path | None
         centered(tags, 816.0, 7.5, font_sans, (0.48, 0.45, 0.44), 520, max_lines=1)
 
 
-def reconstruct_scan(page: fitz.Page, settings: dict) -> bytes:
+_MIGAN_LOCK = threading.Lock()
+_MIGAN_SESSION = None
+_MIGAN_SHA256 = "6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b"
+
+
+def migan_session():
+    """Load the pinned CPU model lazily; caller holds _MIGAN_LOCK."""
+    global _MIGAN_SESSION
+    if _MIGAN_SESSION is not None:
+        return _MIGAN_SESSION
+    path = Path(os.environ.get("MIGAN_MODEL_PATH") or BASE / "models" / "migan_pipeline_v2.onnx")
+    if not path.is_file():
+        raise ValueError("AI model is not installed on the app server. Run python scripts/install_migan.py and restart the server, or use the classic method.")
+    hasher = hashlib.sha256()
+    with path.open("rb") as model:
+        for chunk in iter(lambda: model.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    digest = hasher.hexdigest()
+    if digest != _MIGAN_SHA256:
+        raise ValueError("AI model checksum mismatch. Reinstall the verified model.")
+    try:
+        import onnxruntime as ort
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 2
+        options.inter_op_num_threads = 1
+        _MIGAN_SESSION = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
+    except Exception as exc:
+        raise ValueError(f"Could not load the local AI model: {str(exc)[:150]}") from exc
+    return _MIGAN_SESSION
+
+
+def migan_inpaint(image, mask):
+    """Infer on a bounded crop; only copy the explicitly masked pixels back."""
+    import cv2
+    import numpy as np
+    ys, xs = np.where(mask != 0)
+    if not len(xs):
+        return image.copy()
+    padding = 96
+    x0, x1 = max(0, int(xs.min()) - padding), min(image.shape[1], int(xs.max()) + padding + 1)
+    y0, y1 = max(0, int(ys.min()) - padding), min(image.shape[0], int(ys.max()) + padding + 1)
+    crop = image[y0:y1, x0:x1]
+    crop_mask = mask[y0:y1, x0:x1]
+    h, w = crop.shape[:2]
+    scale = min(1.0, 768 / max(h, w))
+    if scale < 1:
+        w2, h2 = max(1, round(w * scale)), max(1, round(h * scale))
+        model_image = cv2.resize(crop, (w2, h2), interpolation=cv2.INTER_AREA)
+        # Max-pooling preserves small selected features when reducing the mask.
+        model_mask = cv2.resize(crop_mask, (w2, h2), interpolation=cv2.INTER_AREA)
+        model_mask = (model_mask > 0).astype(np.uint8) * 255
+    else:
+        model_image, model_mask = crop, crop_mask
+    inputs = {"image": np.ascontiguousarray(model_image.transpose(2, 0, 1)[None]),
+              "mask": np.ascontiguousarray((255 - model_mask)[None, None])}
+    try:
+        with _MIGAN_LOCK:
+            result = migan_session().run(None, inputs)[0]
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"AI reconstruction failed: {str(exc)[:150]}") from exc
+    if result.dtype != np.uint8 or result.shape != inputs["image"].shape:
+        raise ValueError("AI model returned an unexpected result.")
+    generated = result[0].transpose(1, 2, 0)
+    if scale < 1:
+        generated = cv2.resize(generated, (w, h), interpolation=cv2.INTER_LINEAR)
+    output = image.copy()
+    output_crop = output[y0:y1, x0:x1]
+    output_crop[crop_mask != 0] = generated[crop_mask != 0]
+    return output
+
+
+def reconstruct_scan(page: fitz.Page, settings: dict, preview_mask: bool = False) -> bytes:
     """Experimental color-based reconstruction; only isolated image-only scans are eligible."""
     import cv2
     import numpy as np
@@ -787,7 +860,16 @@ def reconstruct_scan(page: fitz.Page, settings: dict) -> bytes:
         raise ValueError("No pixels match that color. Choose another color or tolerance.")
     if count > pix.width * pix.height * .25:
         raise ValueError("Too much of the page matches this color. Narrow the selection or lower tolerance.")
-    result = cv2.inpaint(image, mask, 3, cv2.INPAINT_TELEA)
+    engine = settings.get("engine", "classic")
+    if engine not in ("classic", "ai"):
+        raise ValueError("Unknown reconstruction method.")
+    if preview_mask:
+        result = image.copy()
+        result[mask != 0] = (255, 0, 0)
+    elif engine == "ai":
+        result = migan_inpaint(image, mask)
+    else:
+        result = cv2.inpaint(image, mask, 3, cv2.INPAINT_TELEA)
     from PIL import Image
     data = io.BytesIO()
     Image.fromarray(result).save(data, format="PNG")
@@ -803,7 +885,7 @@ def reconstruct_preview(job_id, doc_id, page_no):
         with fitz.open(job["files"][doc_id]["path"]) as doc:
             if not 0 <= page_no < doc.page_count:
                 abort(404)
-            png = reconstruct_scan(doc[page_no], request.get_json(silent=True))
+            png = reconstruct_scan(doc[page_no], request.get_json(silent=True), preview_mask=request.args.get("mask") == "1")
         return app.response_class(png, mimetype="image/png", headers={"Cache-Control": "no-store"})
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
