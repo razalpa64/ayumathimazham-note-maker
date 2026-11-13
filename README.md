@@ -14,7 +14,7 @@ Powered by a deterministic rules-based vector engine, Azhumathimayam Note Maker 
 - **🎨 Brand Color Theme Selector**: Choose between Azhumathimayam Maroon, Royal Navy, Imperial Emerald, Obsidian Slate, Crimson Ruby, or pick any custom color.
 - **🛡️ Custom Watermarking (Under Text)**: Watermarks (custom text or image/stamp) are rendered strictly *behind* notes (`overlay=False`), keeping formulas, diagrams, and text 100% sharp and readable.
 - **Interactive PDF Links**: Embeds native clickable links inside the PDF for `azhumathimayam.invytra.in`, phone calls (`tel:`), and emails (`mailto:`).
-- **⚡ Smart Auto-Clean**: One-click intelligence that automatically identifies old branded covers, promotional/contact pages, QR codes, and watermarks for removal.
+- **⚡ Smart Auto-Clean**: Suggestions help identify possible branding; review items before choosing removal.
 - **100% Reliable Batch Downloads**: Direct single-click PDF downloads and instant **Download All as ZIP** for multi-document batches.
 - **Deterministic & Private**: 100% local processing. No cloud telemetry, no remote model calls, and zero data leakage. Original uploaded PDFs are never overwritten.
 
@@ -63,7 +63,7 @@ Open your browser at **http://127.0.0.1:5055**.
 ## Workflow
 
 1. **Upload**: Drag and drop up to 12 study PDFs (up to 60 MB each). Optionally provide CSV/JSON metadata or a custom logo.
-2. **Review & Auto-Clean**: Review each document's suggested title, scheme, and page layout. Click **⚡ Smart Auto-Clean** to instantly deselect old covers and promo pages.
+2. **Review & Auto-Clean**: Review each document's suggested title, scheme, and page layout. Use **Apply cover suggestions** to fill missing cover details; choose any removals manually.
 3. **Live Cover Preview**: Preview the generated cover page in real time with exact A4 proportions, authentic Malayalam logo, and styled pill button.
 4. **Prepare & Download**: Process the batch into pristine output PDFs (`Azhumathimayam_<Topic>_Notes.pdf`) and download individually or as a single ZIP archive.
 
@@ -107,5 +107,7 @@ This repository is configured out-of-the-box for Vercel using `vercel.json` and 
 
 MIT License. Designed with care for students and educators.
 
-### Fixed or flattened branding
-In each document's review panel, use **Remove fixed or flattened branding**. Choose a preview page and drag a rectangle over the mark. Optionally apply subsequent selections to all retained pages in the same relative position; remove unwanted selections before processing. This is destructive area redaction, not image reconstruction: it whites out scanned pixels and removes intersecting text and some vector objects, including useful content. Different page layouts may need separate selections. Check the resulting PDF; originals remain unchanged. Only edit documents you have permission to modify.
+### Fixed branding and preserving content
+The review panel suggests separate image objects, including single-page images, for you to inspect. Select an image only if all its uses are watermarks: removal affects every use of that PDF image object. No pages, text, links, or images are selected for removal by default. Exact-text removal is optional and may remove overlapping text. Area erasing is disabled because it destroys underlying content.
+
+This is object-based detection, not AI reconstruction. A watermark flattened into a scan, vector outlines, or overlapping text cannot reliably be removed without risking content; use an unwatermarked original where possible. Review the output and edit only documents you have permission to modify.
