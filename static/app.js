@@ -640,14 +640,16 @@ function docHTML(d) {
           </div>
           <div class="brain-box">
             <h4>Experimental scan reconstruction</h4>
-            <p class="muted">Only for pages containing one full-page scan. Draw around the mark, pick its color, and preview. Similar-colored notes may be changed; covered content cannot be recovered reliably. Inspect closely before approval. Processing runs on the app server, not an external AI service. This is image processing, not a generative AI model.</p>
+            <p class="muted">Only for pages containing one full-page scan. Draw around the mark, pick its color, and review the red detection mask and result. Color matching suggests pixels, not an AI watermark detector. AI reconstruction guesses missing content and can alter similarly colored notes or invent details. It runs on the app server, not an external AI service. Inspect closely before approval.</p>
             <label>Page <select data-scan-page>${pages.map(p => `<option value="${p.number - 1}">Page ${p.number}</option>`).join('')}</select></label>
             <label>Mark color <input data-scan-color type="color" value="#cccccc"></label>
+            <button type="button" class="button secondary" data-scan-pick>Pick color from page</button>
             <label>Color tolerance <input data-scan-tolerance type="number" value="20" min="1" max="100"></label>
+            <label>Reconstruction method <select data-scan-engine><option value="ai">Local AI (MI-GAN, CPU)</option><option value="classic">Classic inpainting</option></select></label>
             <div class="region-preview" data-scan-area><img data-scan-image src="${esc(pages[0]?.preview || '')}" alt="Original page: drag to select the watermark"><div data-scan-overlay></div></div>
             <button type="button" class="button secondary" data-scan-preview>Preview reconstruction</button>
             <div data-scan-status class="muted" aria-live="polite">Draw a rectangle around the mark first.</div>
-            <div data-scan-result hidden><p>Proposed result — compare with the original above, including any text beneath the mark.</p><a data-scan-full target="_blank" rel="noopener">Open full-resolution result</a><br><img data-scan-output alt="Reconstructed page preview" style="max-width:100%;width:420px"><label class="checkline"><input type="checkbox" data-scan-approve> I reviewed this result and accept possible content changes.</label></div>
+            <div data-scan-result hidden><p>Detected pixels (red) — check that notes aren't marked.</p><img data-scan-mask alt="Pixels selected for reconstruction shown in red" style="max-width:100%;width:420px"><p>Proposed result — compare with the original above, including any text beneath the mark.</p><a data-scan-full target="_blank" rel="noopener">Open full-resolution result</a><br><img data-scan-output alt="Reconstructed page preview" style="max-width:100%;width:420px"><label class="checkline"><input type="checkbox" data-scan-approve> I reviewed this result and accept possible content changes.</label></div>
           </div>
           ${warnings}
         </div>
@@ -836,19 +838,37 @@ function bindDocs() {
 
     const scanArea = card.querySelector('[data-scan-area]'), scanPage = card.querySelector('[data-scan-page]');
     const scanImage = card.querySelector('[data-scan-image]'), scanOverlay = card.querySelector('[data-scan-overlay]');
-    const scanColor = card.querySelector('[data-scan-color]'), scanTolerance = card.querySelector('[data-scan-tolerance]');
+    const scanColor = card.querySelector('[data-scan-color]'), scanTolerance = card.querySelector('[data-scan-tolerance]'), scanEngine = card.querySelector('[data-scan-engine]');
     const scanResult = card.querySelector('[data-scan-result]'), scanOutput = card.querySelector('[data-scan-output]');
     const scanApprove = card.querySelector('[data-scan-approve]'), scanStatus = card.querySelector('[data-scan-status]');
-    let rect = null, start = null, proposed = null, version = 0, previewUrl = null;
+    let rect = null, start = null, proposed = null, version = 0, previewUrl = null, maskUrl = null, picking = false;
     // A newly rendered editor must be reviewed again, never silently reuse an old approval.
     delete c.scan_reconstruction;
     const resetScan = () => {
       version++; proposed = null; delete c.scan_reconstruction; scanApprove.checked = false;
       scanResult.hidden = true;
       if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+      if (maskUrl) { URL.revokeObjectURL(maskUrl); maskUrl = null; }
     };
     const point = e => { const b = scanArea.getBoundingClientRect(); return [Math.max(0, Math.min(1,(e.clientX-b.left)/b.width)), Math.max(0, Math.min(1,(e.clientY-b.top)/b.height))]; };
-    scanArea.onpointerdown = e => { e.preventDefault(); resetScan(); start = point(e); scanArea.setPointerCapture(e.pointerId); };
+    card.querySelector('[data-scan-pick]').onclick = () => { picking = true; scanStatus.textContent = 'Click a watermark pixel in the page preview to sample its color.'; };
+    scanArea.onpointerdown = e => {
+      e.preventDefault();
+      if (picking) {
+        picking = false; resetScan();
+        try {
+          const [x, y] = point(e), canvas = document.createElement('canvas');
+          canvas.width = scanImage.naturalWidth; canvas.height = scanImage.naturalHeight;
+          if (!canvas.width || !canvas.height) throw new Error('Page preview is not ready.');
+          const ctx = canvas.getContext('2d', {willReadFrequently: true}); ctx.drawImage(scanImage, 0, 0);
+          const rgba = ctx.getImageData(Math.min(canvas.width-1, Math.floor(x*canvas.width)), Math.min(canvas.height-1, Math.floor(y*canvas.height)), 1, 1).data;
+          scanColor.value = '#' + Array.from(rgba.slice(0, 3), n => n.toString(16).padStart(2, '0')).join('');
+          scanStatus.textContent = 'Color sampled. Review the red mask before approving.';
+        } catch (err) { scanStatus.textContent = err.message || 'Could not sample the page.'; }
+        return;
+      }
+      resetScan(); start = point(e); scanArea.setPointerCapture(e.pointerId);
+    };
     scanArea.onpointerup = e => {
       if (!start) return;
       const end = point(e); rect = {x0: Math.min(start[0],end[0]), y0: Math.min(start[1],end[1]), x1: Math.max(start[0],end[0]), y1: Math.max(start[1],end[1])}; start = null;
@@ -857,19 +877,23 @@ function bindDocs() {
       scanStatus.textContent = 'Selection ready. Choose the watermark color and preview.';
     };
     scanArea.onpointercancel = () => { start = null; };
-    scanPage.onchange = () => { resetScan(); rect = null; scanOverlay.innerHTML = ''; scanImage.src = d.pages[+scanPage.value].preview; scanStatus.textContent = 'Draw a rectangle around the mark first.'; };
-    for (const control of [scanColor, scanTolerance]) control.oninput = () => { resetScan(); scanStatus.textContent = 'Settings changed. Preview again.'; };
+    scanPage.onchange = () => { picking = false; resetScan(); rect = null; scanOverlay.innerHTML = ''; scanImage.src = d.pages[+scanPage.value].preview; scanStatus.textContent = 'Draw a rectangle around the mark first.'; };
+    for (const control of [scanColor, scanTolerance, scanEngine]) control.oninput = () => { resetScan(); scanStatus.textContent = 'Settings changed. Preview again.'; };
     card.querySelector('[data-scan-preview]').onclick = async () => {
       if (!rect) { scanStatus.textContent = 'Draw a rectangle around the mark first.'; return; }
       resetScan(); const current = version;
-      const settings = {...rect, page: +scanPage.value, color: scanColor.value, tolerance: +scanTolerance.value};
+      const settings = {...rect, page: +scanPage.value, color: scanColor.value, tolerance: +scanTolerance.value, engine: scanEngine.value};
       scanStatus.textContent = 'Preparing local preview…';
       try {
-        const res = await fetch(`/api/reconstruct-preview/${state.job}/${d.id}/${settings.page}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(settings)});
-        if (!res.ok) { const data = await res.json(); throw new Error(data.error || 'Preview failed'); }
-        const blob = await res.blob();
+        const url = `/api/reconstruct-preview/${state.job}/${d.id}/${settings.page}`;
+        const options = {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(settings)};
+        const [res, maskRes] = await Promise.all([fetch(url, options), fetch(`${url}?mask=1`, options)]);
+        for (const response of [res, maskRes]) {
+          if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || 'Preview failed'); }
+        }
+        const [blob, maskBlob] = await Promise.all([res.blob(), maskRes.blob()]);
         if (current !== version) return;
-        previewUrl = URL.createObjectURL(blob); scanOutput.src = previewUrl; card.querySelector('[data-scan-full]').href = previewUrl; proposed = settings;
+        previewUrl = URL.createObjectURL(blob); maskUrl = URL.createObjectURL(maskBlob); card.querySelector('[data-scan-mask]').src = maskUrl; scanOutput.src = previewUrl; card.querySelector('[data-scan-full]').href = previewUrl; proposed = settings;
         scanResult.hidden = false; scanStatus.textContent = 'Compare the result with the original before approving.';
       } catch (err) { if (current === version) scanStatus.textContent = err.message; }
     };

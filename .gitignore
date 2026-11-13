@@ -19,3 +19,6 @@ runtime/
 .DS_Store
 Thumbs.db
 
+
+# Downloaded AI weights (installed separately)
+models/

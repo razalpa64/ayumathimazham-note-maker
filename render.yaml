@@ -3,7 +3,7 @@ services:
     name: azhumathimayam-note-maker
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python scripts/install_migan.py
     startCommand: gunicorn app:app -b 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 180
     envVars:
       - key: PYTHON_VERSION
